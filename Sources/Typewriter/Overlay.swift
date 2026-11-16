@@ -41,7 +41,7 @@ final class OverlayController: TypewriterViewDelegate {
         let w = OverlayWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false, screen: screen)
         w.level = .screenSaver
         w.isOpaque = true
-        w.backgroundColor = NSColor(cgColor: Palette.paper)
+        w.backgroundColor = NSColor(cgColor: Palette.paperBackground)
         w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         w.isReleasedWhenClosed = false
         w.hasShadow = false
