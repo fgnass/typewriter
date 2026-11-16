@@ -15,7 +15,7 @@ struct Metrics {
     let capHeight: CGFloat
     let left: CGFloat
     let rodY: CGFloat
-    let rodHeight: CGFloat = 2
+    let rodHeight: CGFloat = 5
     let carriageWidth: CGFloat
     let carriageHeight: CGFloat
     /// Baseline of the current line, in screen coordinates.
@@ -185,16 +185,17 @@ final class PaperScene {
         light.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
         root.addSublayer(light)
 
-        // A thin dark rod.
-        rod.colors = [CGColor(gray: 0.36, alpha: 1), CGColor(gray: 0.14, alpha: 1), CGColor(gray: 0.2, alpha: 1)]
-        rod.locations = [0, 0.5, 1]
+        // A chrome rod.
+        // Chrome: dark lower edge, a bright reflection of the paper above the middle, a sharp highlight line.
+        rod.colors = [0.22, 0.42, 0.62, 0.5, 0.78, 0.97, 0.86, 0.45].map { CGColor(gray: $0, alpha: 1) }
+        rod.locations = [0, 0.18, 0.38, 0.5, 0.62, 0.74, 0.86, 1]
         rod.startPoint = CGPoint(x: 0.5, y: 0)
         rod.endPoint = CGPoint(x: 0.5, y: 1)
         rod.frame = CGRect(x: 0, y: m.rodY - m.rodHeight / 2, width: m.size.width, height: m.rodHeight)
         rod.shadowColor = CGColor(gray: 0, alpha: 1)
-        rod.shadowOpacity = 0.18
-        rod.shadowRadius = 1
-        rod.shadowOffset = CGSize(width: 0, height: -1)
+        rod.shadowOpacity = 0.22
+        rod.shadowRadius = 1.5
+        rod.shadowOffset = CGSize(width: 0, height: -1.5)
         root.addSublayer(rod)
 
         setupCarriage()
@@ -246,8 +247,8 @@ final class PaperScene {
         root.addSublayer(carriage)
     }
 
-    /// The print position is a bit right of the carriage center.
-    private static let carriageAnchorX: CGFloat = 0.62
+    /// The lamp, and with it the print position, is in the middle of the carriage.
+    private static let carriageAnchorX: CGFloat = 0.5
 
     func setHint(_ text: String) { hintLayer.string = text }
 
@@ -339,19 +340,22 @@ final class PaperScene {
     }
 
     /// The lighting of the page, twice as wide as the screen and centered on the lamp.
-    /// Outside the beam it is the cool ambient light. The beam has a narrow base at the lamp,
-    /// opens upward, ends in a soft rounded top and is warmest close to the lamp.
+    /// Outside the beam it is the cool ambient light. The beam is a wide wedge with straight sides.
+    /// Its apex is in the carriage, it has full strength down to the rod, where it ends with a hard edge,
+    /// and it fades out softly towards the top.
     private static func makeLightImage(metrics m: Metrics) -> CGImage? {
         let step = 2.0
         let W = Double(m.size.width), H = Double(m.size.height)
         let w = Int(W * 2 / step), h = Int(H / step)
         var px = [UInt8](repeating: 0, count: w * h * 4)
         var rng = SplitMix64(seed: 7)
-        let lampY = Double(m.lampY)
+        let floorY = Double(m.rodY + m.rodHeight / 2)
         let amb = Palette.ambient
-        // Values measured from the reference: the half width grows with the square root of the height.
-        let k = 14.9 * (H / 1050).squareRoot()
-        let c = 0.28 * H, a = 0.36 * W, b = 0.30 * H
+        let half = 52.0 * .pi / 180
+        // The virtual apex lies below the carriage, so the beam is as wide as the carriage where it leaves it.
+        let carriageTop = Double(m.rodY + m.carriageHeight / 2)
+        let apexY = carriageTop - Double(m.carriageWidth / 2) * 0.8 / tan(half)
+        let soft = 0.07
         func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
             let t = max(0, min(1, (x - e0) / (e1 - e0)))
             return t * t * (3 - 2 * t)
@@ -359,30 +363,24 @@ final class PaperScene {
         func mix(_ p: Double, _ q: Double, _ t: Double) -> Double { p + (q - p) * t }
         for row in 0..<h {
             let y = (Double(h - 1 - row) + 0.5) * step
-            let v = y - lampY
-            let vp = max(v + 6, 0)
-            let fall = 0.5 + 0.5 * exp(-vp / (0.3 * H))
-            // Warm cream close to the lamp, more neutral further up.
-            let t = min(1, vp / (0.55 * H))
-            let t1 = min(1, t * 2), t2 = max(0, t * 2 - 1)
-            let cr = mix(mix(1.0, 0.995, t1), 0.94, t2)
-            let cg = mix(mix(0.975, 0.95, t1), 0.915, t2)
-            let cb = mix(mix(0.85, 0.885, t1), 0.92, t2)
-            let sw = 10 + 0.12 * vp
-            let reach = k * vp.squareRoot()
+            let v = y - apexY
             for col in 0..<w {
                 let u = (Double(col) + 0.5) * step - W
-                var shape = 0.0
-                if v > -6 {
-                    let para = 1 - smooth(-sw, sw * 0.7, abs(u) - reach)
-                    if para > 0 {
-                        let rho = ((u / a) * (u / a) + ((v - c) / b) * ((v - c) / b)).squareRoot()
-                        shape = para * (1 - smooth(0.7, 1.1, rho))
-                    }
+                var lit = 0.0
+                var d = 0.0
+                if y >= floorY {
+                    d = (u * u + v * v).squareRoot()
+                    let angle = atan2(abs(u), v)
+                    let sides = 1 - smooth(half - soft, half + soft, angle)
+                    let top = 1 - smooth(0.4 * H, 0.8 * H, d)
+                    lit = sides * top
                 }
-                let d = (u * u + v * v).squareRoot()
-                let glow = 0.6 * exp(-d / 26) * smooth(-14, -2, v)
-                let lit = min(1, shape * fall + glow)
+                // Warm cream close to the lamp, more neutral further up.
+                let t = min(1, d / (0.6 * H))
+                let t1 = min(1, t * 2), t2 = max(0, t * 2 - 1)
+                let cr = mix(mix(1.0, 0.995, t1), 0.95, t2)
+                let cg = mix(mix(0.97, 0.95, t1), 0.925, t2)
+                let cb = mix(mix(0.85, 0.885, t1), 0.92, t2)
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
                 px[i] = q(mix(amb.r, cr, lit))
