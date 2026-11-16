@@ -22,7 +22,10 @@ struct Metrics {
     let barHeight: CGFloat = 3
     let carriageWidth: CGFloat
     let carriageHeight: CGFloat
-    let guideHeight: CGFloat
+    let stemHeight: CGFloat
+    let lampHeadWidth: CGFloat
+    let lampHeadHeight: CGFloat = 3
+    let lampTopY: CGFloat
     let typingY: CGFloat
     let baseline: CGFloat
     let linePadding: CGFloat = 24
@@ -41,12 +44,14 @@ struct Metrics {
         lineHeight = (fontSize * 1.6).rounded()
         left = ((size.width - CGFloat(columns) * charWidth) / 2).rounded()
         barCenterY = (size.height * 0.14).rounded()
-        carriageHeight = max(14, (fontSize * 1.05).rounded())
-        carriageWidth = (carriageHeight * 4.6).rounded()
-        guideHeight = (fontSize * 0.55).rounded()
+        carriageHeight = max(18, (fontSize * 1.45).rounded())
+        carriageWidth = (carriageHeight * 3.9).rounded()
+        stemHeight = max(5, (fontSize * 0.4).rounded())
+        lampHeadWidth = (charWidth * 1.6).rounded()
+        lampTopY = barCenterY + carriageHeight / 2 + stemHeight + lampHeadHeight
         baseline = (lineHeight * 0.32).rounded()
-        // The current line sits right above the type guide.
-        let baselineY = barCenterY + carriageHeight / 2 + guideHeight + 3
+        // The current line sits right above the lamp.
+        let baselineY = lampTopY + (descent * 0.8).rounded() + 2
         typingY = baselineY - baseline
     }
 
@@ -111,7 +116,7 @@ final class LineLayer: CALayer {
             draw(g.char, style: g.style, x: x, y: y0, inkScale: 0.07, blur: 1.4, in: ctx)
         }
         for g in glyphs where !g.char.isWhitespace {
-            draw(g.char, style: g.style, x: x0 + CGFloat(g.col) * m.charWidth, y: y0, inkScale: 1, blur: 0.6, in: ctx)
+            draw(g.char, style: g.style, x: x0 + CGFloat(g.col) * m.charWidth, y: y0, inkScale: 1, blur: 0, in: ctx)
         }
     }
 
@@ -125,7 +130,9 @@ final class LineLayer: CALayer {
         ctx.setStrokeColor(color)
         ctx.setLineWidth(0.12)
         ctx.setTextDrawingMode(.fill)
-        ctx.setShadow(offset: .zero, blur: blur, color: CGColor(srgbRed: Palette.ink.r, green: Palette.ink.g, blue: Palette.ink.b, alpha: alpha * 0.7))
+        if blur > 0 {
+            ctx.setShadow(offset: .zero, blur: blur, color: CGColor(srgbRed: Palette.ink.r, green: Palette.ink.g, blue: Palette.ink.b, alpha: alpha * 0.7))
+        }
         ctx.textPosition = .zero
         CTLineDraw(ctLine(for: c), ctx)
         ctx.restoreGState()
@@ -208,8 +215,9 @@ final class TypewriterView: NSView, NSTextInputClient {
         lightClip.masksToBounds = true
         root.addSublayer(lightClip)
 
-        let coneSize = CGSize(width: m.size.width * 1.3, height: lightClip.bounds.height)
-        spotlight.contents = Self.makeConeImage(size: coneSize, screenHeight: m.size.height)
+        let coneSize = CGSize(width: m.size.width * 1.4, height: lightClip.bounds.height)
+        let apexHeight = m.lampTopY - m.barCenterY
+        spotlight.contents = Self.makeConeImage(size: coneSize, apexHeight: apexHeight, screenHeight: m.size.height)
         spotlight.contentsGravity = .resize
         spotlight.magnificationFilter = .linear
         spotlight.anchorPoint = CGPoint(x: 0.5, y: 0)
@@ -276,90 +284,122 @@ final class TypewriterView: NSView, NSTextInputClient {
         }
     }
 
-    /// A white capsule on the rod with a small lamp lens, and a T-shaped type guide that marks the print position.
+    /// A glossy white capsule on the rod. A slim stem carries the lamp, which sits right below the print position.
     private func setupCarriage() {
         let m = metrics
         let w = m.carriageWidth, h = m.carriageHeight
-        carriage.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         carriage.bounds = CGRect(x: 0, y: 0, width: w, height: h)
         carriage.position = CGPoint(x: m.carriageX(col: 0), y: m.barCenterY)
+        carriage.masksToBounds = false
 
-        let body = CAGradientLayer()
-        body.frame = carriage.bounds
-        body.cornerRadius = h / 2
-        body.colors = [CGColor(srgbRed: 0.84, green: 0.845, blue: 0.86, alpha: 1),
-                       CGColor(srgbRed: 0.97, green: 0.97, blue: 0.975, alpha: 1),
-                       CGColor(srgbRed: 0.995, green: 0.995, blue: 1, alpha: 1)]
-        body.locations = [0, 0.45, 1]
-        body.startPoint = CGPoint(x: 0.5, y: 0)
-        body.endPoint = CGPoint(x: 0.5, y: 1)
-        body.shadowColor = CGColor(gray: 0, alpha: 1)
-        body.shadowOpacity = 0.3
-        body.shadowRadius = 3
-        body.shadowOffset = CGSize(width: 0, height: -2)
-        body.borderColor = CGColor(gray: 0.6, alpha: 0.35)
-        body.borderWidth = 0.5
+        // Warm reflection of the lamp on the polished rod.
+        let rodGlow = CAGradientLayer()
+        rodGlow.type = .radial
+        rodGlow.colors = [CGColor(srgbRed: 1, green: 0.88, blue: 0.62, alpha: 0.75),
+                          CGColor(srgbRed: 1, green: 0.9, blue: 0.7, alpha: 0.25),
+                          CGColor(srgbRed: 1, green: 0.9, blue: 0.7, alpha: 0)]
+        rodGlow.locations = [0, 0.35, 1]
+        rodGlow.startPoint = CGPoint(x: 0.5, y: 0.5)
+        rodGlow.endPoint = CGPoint(x: 1, y: 1)
+        let gw = w * 5
+        rodGlow.frame = CGRect(x: w / 2 - gw / 2, y: h / 2 - m.barHeight / 2, width: gw, height: m.barHeight)
+        carriage.addSublayer(rodGlow)
+
+        // Stem from the carriage up to the lamp.
+        let stemWidth: CGFloat = 2
+        let stem = CAGradientLayer()
+        stem.colors = [CGColor(gray: 0.32, alpha: 1), CGColor(gray: 0.78, alpha: 1), CGColor(gray: 0.4, alpha: 1)]
+        stem.startPoint = CGPoint(x: 0, y: 0.5)
+        stem.endPoint = CGPoint(x: 1, y: 0.5)
+        stem.frame = CGRect(x: w / 2 - stemWidth / 2, y: h - 1, width: stemWidth, height: m.stemHeight + 1)
+        carriage.addSublayer(stem)
+
+        // Lamp head: graphite with a glowing filament on top.
+        let head = CAGradientLayer()
+        head.colors = [CGColor(gray: 0.12, alpha: 1), CGColor(gray: 0.3, alpha: 1), CGColor(gray: 0.2, alpha: 1)]
+        head.startPoint = CGPoint(x: 0.5, y: 0)
+        head.endPoint = CGPoint(x: 0.5, y: 1)
+        head.cornerRadius = m.lampHeadHeight / 2
+        head.frame = CGRect(x: w / 2 - m.lampHeadWidth / 2, y: h + m.stemHeight, width: m.lampHeadWidth, height: m.lampHeadHeight)
+        carriage.addSublayer(head)
+        let filament = CAGradientLayer()
+        filament.colors = [CGColor(srgbRed: 1, green: 0.78, blue: 0.45, alpha: 0.2),
+                           CGColor(srgbRed: 1, green: 0.97, blue: 0.88, alpha: 1),
+                           CGColor(srgbRed: 1, green: 0.78, blue: 0.45, alpha: 0.2)]
+        filament.startPoint = CGPoint(x: 0, y: 0.5)
+        filament.endPoint = CGPoint(x: 1, y: 0.5)
+        filament.cornerRadius = 0.5
+        filament.frame = CGRect(x: w / 2 - m.lampHeadWidth * 0.42, y: h + m.stemHeight + m.lampHeadHeight - 1.2,
+                                width: m.lampHeadWidth * 0.84, height: 1.2)
+        carriage.addSublayer(filament)
+
+        // Bloom around the glowing filament.
+        let bloom = CAGradientLayer()
+        bloom.type = .radial
+        bloom.colors = [CGColor(srgbRed: 1, green: 0.95, blue: 0.82, alpha: 0.95),
+                        CGColor(srgbRed: 1, green: 0.85, blue: 0.6, alpha: 0.35),
+                        CGColor(srgbRed: 1, green: 0.85, blue: 0.6, alpha: 0)]
+        bloom.locations = [0, 0.3, 1]
+        bloom.startPoint = CGPoint(x: 0.5, y: 0.5)
+        bloom.endPoint = CGPoint(x: 1, y: 1)
+        let bw = m.lampHeadWidth * 2.6, bh = m.lampHeadWidth * 1.3
+        bloom.frame = CGRect(x: w / 2 - bw / 2, y: h + m.stemHeight + m.lampHeadHeight - bh / 2, width: bw, height: bh)
+        carriage.insertSublayer(bloom, below: head)
+
+        let body = CarriageBodyLayer()
+        body.frame = carriage.bounds.insetBy(dx: -5, dy: -5)
+        body.contentsScale = scale
+        body.setNeedsDisplay()
         carriage.addSublayer(body)
 
-        // The lamp lens.
-        let lens = CAGradientLayer()
-        let d = max(4, (h * 0.32).rounded())
-        lens.type = .radial
-        lens.colors = [CGColor(srgbRed: 0.55, green: 0.5, blue: 0.4, alpha: 1), CGColor(srgbRed: 0.18, green: 0.18, blue: 0.2, alpha: 1)]
-        lens.startPoint = CGPoint(x: 0.35, y: 0.65)
-        lens.endPoint = CGPoint(x: 1, y: 1)
-        lens.frame = CGRect(x: w / 2 - d / 2 - w * 0.12, y: h / 2 - d / 2, width: d, height: d)
-        lens.cornerRadius = d / 2
-        lens.masksToBounds = true
-        carriage.addSublayer(lens)
-
-        // The type guide.
-        let guideColor = CGColor(srgbRed: 0.2, green: 0.2, blue: 0.22, alpha: 1)
-        let stem = CALayer()
-        stem.backgroundColor = guideColor
-        stem.frame = CGRect(x: w / 2 - 0.75, y: h, width: 1.5, height: m.guideHeight - 1.5)
-        carriage.addSublayer(stem)
-        let cap = CALayer()
-        cap.backgroundColor = guideColor
-        cap.frame = CGRect(x: w / 2 - m.charWidth * 0.55, y: h + m.guideHeight - 1.5, width: m.charWidth * 1.1, height: 1.5)
-        carriage.addSublayer(cap)
-        carriage.masksToBounds = false
         root.addSublayer(carriage)
     }
 
-    /// The light cone of the carriage lamp: narrow at the lamp, wide at the top, warm close to the lamp.
-    private static func makeConeImage(size: CGSize, screenHeight: CGFloat) -> CGImage? {
-        let step: CGFloat = 3 // points per pixel; the layer scales it up smoothly
+    /// Light of an incandescent lamp on the paper: a soft beam, bright and almost white close to the lamp,
+    /// warm further away, plus the bloom around the bulb. Dithered against banding.
+    private static func makeConeImage(size: CGSize, apexHeight: CGFloat, screenHeight: CGFloat) -> CGImage? {
+        let step: CGFloat = 2 // points per pixel; the layer scales it up smoothly
         let w = Int(size.width / step), h = Int(size.height / step)
         guard w > 0, h > 0 else { return nil }
         var px = [UInt8](repeating: 0, count: w * h * 4)
-        let cx = CGFloat(w) / 2
-        let apexBelow: CGFloat = 14 // the virtual apex sits a bit below the lamp
-        let halfAngle: CGFloat = 0.85
-        let reach = screenHeight * 1.05
-        func smooth(_ a: CGFloat, _ b: CGFloat, _ x: CGFloat) -> CGFloat {
+        var rng = SplitMix64(seed: 7)
+        let cx = Double(w) / 2
+        let z0 = 22.0       // the lamp is a bit in front of the paper
+        let r0 = 60.0
+        let k = 13.0 * pow(Double(screenHeight) / 900, 1.5)
+        func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double {
             let t = max(0, min(1, (x - a) / (b - a)))
             return t * t * (3 - 2 * t)
         }
+        func mix(_ a: Double, _ b: Double, _ t: Double) -> Double { a + (b - a) * t }
         for row in 0..<h {
-            let y = CGFloat(h - 1 - row) * step + apexBelow // distance above the apex, in points
+            let y = Double(h - 1 - row) * Double(step) - Double(apexHeight)
             for col in 0..<w {
-                let dx = (CGFloat(col) - cx) * step
-                let dist = (dx * dx + y * y).squareRoot()
-                let angle = atan2(abs(dx), y)
-                let edge = 1 - smooth(halfAngle * 0.45, halfAngle * 1.05, angle)
-                let falloff = (1 - smooth(reach * 0.3, reach, dist)) * (0.7 + 0.3 * exp(-dist / (screenHeight * 0.3)))
-                let glow = exp(-dist / 40) * 0.8
-                let a = min(1, edge * falloff * 0.97 + glow)
-                let warm = exp(-dist / (screenHeight * 0.45))
-                let r: CGFloat = 1
-                let g = 0.985 - 0.07 * warm
-                let bl = 0.94 - 0.26 * warm
+                let dx = (Double(col) - cx) * Double(step)
+                let d = (dx * dx + y * y).squareRoot()
+                // Beam: angle from straight up.
+                let angle = atan2(abs(dx), max(y, 0.0001))
+                let beam = y <= 0 ? 0 : (1 - smooth(0.36, 0.8, angle)) + 0.1 * (1 - smooth(0.7, 1.3, angle))
+                let r = (d * d + z0 * z0).squareRoot()
+                let e = beam * k / pow(r / r0, 1.5)
+                let lit = 1 - exp(-e)
+                let bloom = min(1, 0.95 * exp(-d / 9) + 0.4 * exp(-d / 38))
+                let a = min(0.985, 1 - (1 - lit) * (1 - bloom))
+                // Overexposed white near the lamp, warm yellow in the middle.
+                let hot = pow(lit, 5)
+                var red = 1.0
+                var green = mix(0.885, 0.985, hot)
+                var blue = mix(0.64, 0.94, hot)
+                let bw = bloom / max(a, 0.0001)
+                green = mix(green, 0.93, min(1, bw) * 0.4)
+                blue = mix(blue, 0.78, min(1, bw) * 0.4)
+                red *= a; green *= a; blue *= a
                 let i = (row * w + col) * 4
-                px[i] = UInt8(r * a * 255)
-                px[i + 1] = UInt8(g * a * 255)
-                px[i + 2] = UInt8(bl * a * 255)
-                px[i + 3] = UInt8(a * 255)
+                func q(_ v: Double) -> UInt8 { UInt8(max(0, min(255, v * 255 + (rng.nextUnit() - 0.5) * 1.6))) }
+                px[i] = q(red)
+                px[i + 1] = q(green)
+                px[i + 2] = q(blue)
+                px[i + 3] = max(px[i], max(px[i + 1], max(px[i + 2], q(a))))
             }
         }
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -608,5 +648,84 @@ final class TypewriterView: NSView, NSTextInputClient {
         let x = m.carriageX(col: model.layout.caretCol) - m.charWidth / 2
         let r = NSRect(x: x, y: m.typingY, width: m.charWidth, height: m.lineHeight)
         return window?.convertToScreen(convert(r, to: nil)) ?? r
+    }
+}
+
+
+/// The glossy carriage body, drawn with Core Graphics for fine highlights.
+final class CarriageBodyLayer: CALayer {
+    override func action(forKey event: String) -> CAAction? { NSNull() }
+
+    override func draw(in ctx: CGContext) {
+        let b = bounds.insetBy(dx: 5, dy: 5)
+        let r = b.height / 2
+        let path = CGPath(roundedRect: b, cornerWidth: r, cornerHeight: r, transform: nil)
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        func gradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
+            CGGradient(colorsSpace: cs, colors: stops.map(\.1) as CFArray, locations: stops.map(\.0))!
+        }
+
+        // Soft contact shadow.
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -1.5), blur: 4, color: CGColor(gray: 0, alpha: 0.35))
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(gray: 0.9, alpha: 1))
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.clip()
+        // Base: white lacquer, a bit darker at the bottom.
+        ctx.drawLinearGradient(gradient([
+            (0, CGColor(srgbRed: 0.78, green: 0.785, blue: 0.80, alpha: 1)),
+            (0.3, CGColor(srgbRed: 0.9, green: 0.905, blue: 0.915, alpha: 1)),
+            (0.62, CGColor(srgbRed: 0.975, green: 0.975, blue: 0.98, alpha: 1)),
+            (1, CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)),
+        ]), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
+        // Reflection of the dark rod across the body.
+        ctx.drawLinearGradient(gradient([
+            (0, CGColor(gray: 0.2, alpha: 0)),
+            (0.5, CGColor(gray: 0.2, alpha: 0.09)),
+            (1, CGColor(gray: 0.2, alpha: 0)),
+        ]), start: CGPoint(x: 0, y: b.midY - b.height * 0.22), end: CGPoint(x: 0, y: b.midY + b.height * 0.02), options: [])
+        // Warm light from the lamp on the top.
+        ctx.drawRadialGradient(gradient([
+            (0, CGColor(srgbRed: 1, green: 0.9, blue: 0.7, alpha: 0.6)),
+            (1, CGColor(srgbRed: 1, green: 0.9, blue: 0.7, alpha: 0)),
+        ]), startCenter: CGPoint(x: b.midX, y: b.maxY), startRadius: 0,
+           endCenter: CGPoint(x: b.midX, y: b.maxY), endRadius: b.width * 0.35, options: [])
+        // Gloss on the upper half.
+        let gloss = CGRect(x: b.minX + r * 0.5, y: b.midY + 0.5, width: b.width - r, height: b.height / 2 - 1.2)
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: gloss, cornerWidth: gloss.height / 2, cornerHeight: gloss.height / 2, transform: nil))
+        ctx.clip()
+        ctx.drawLinearGradient(gradient([
+            (0, CGColor(gray: 1, alpha: 0.0)),
+            (1, CGColor(gray: 1, alpha: 0.95)),
+        ]), start: CGPoint(x: 0, y: gloss.minY), end: CGPoint(x: 0, y: gloss.maxY), options: [])
+        ctx.restoreGState()
+        // Bottom rim light.
+        ctx.addPath(CGPath(roundedRect: b.insetBy(dx: 0.75, dy: 0.75), cornerWidth: r - 0.75, cornerHeight: r - 0.75, transform: nil))
+        ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.5))
+        ctx.setLineWidth(0.75)
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        // Fine outline.
+        ctx.addPath(path)
+        ctx.setStrokeColor(CGColor(gray: 0.45, alpha: 0.35))
+        ctx.setLineWidth(0.5)
+        ctx.strokePath()
+
+        // Small indicator dot, left of center.
+        let d = max(3, b.height * 0.2)
+        let dot = CGRect(x: b.midX - b.width * 0.16 - d / 2, y: b.midY - d / 2 - 0.5, width: d, height: d)
+        ctx.addEllipse(in: dot)
+        ctx.setFillColor(CGColor(gray: 0.22, alpha: 1))
+        ctx.fillPath()
+        ctx.addEllipse(in: CGRect(x: dot.minX + d * 0.25, y: dot.minY + d * 0.5, width: d * 0.3, height: d * 0.3))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 0.45))
+        ctx.fillPath()
     }
 }

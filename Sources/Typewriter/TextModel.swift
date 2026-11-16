@@ -8,31 +8,9 @@ struct StrikeStyle: Hashable {
     var ink: CGFloat
     var rotation: CGFloat
 
+    /// All strikes are identical: crisp, even and aligned.
     static func random(for char: Character) -> StrikeStyle {
-        // Each typebar is a bit misaligned in a constant way, plus some random noise per strike.
-        var h = Hasher()
-        h.combine(char)
-        let seed = UInt64(bitPattern: Int64(h.finalize()))
-        let bias = typebarBias(seed)
-        let lightStrike = Double.random(in: 0...1) < 0.05
-        return StrikeStyle(
-            dx: bias.dx + .random(in: -0.25...0.25),
-            dy: bias.dy + .random(in: -0.35...0.35),
-            ink: lightStrike ? .random(in: 0.62...0.74) : .random(in: 0.8...0.95),
-            rotation: bias.rot + .random(in: -0.008...0.008)
-        )
-    }
-
-    private static var biasCache: [UInt64: (dx: CGFloat, dy: CGFloat, rot: CGFloat)] = [:]
-
-    private static func typebarBias(_ seed: UInt64) -> (dx: CGFloat, dy: CGFloat, rot: CGFloat) {
-        if let b = biasCache[seed] { return b }
-        var rng = SplitMix64(seed: seed)
-        let b = (dx: CGFloat(rng.nextUnit() - 0.5) * 0.7,
-                 dy: CGFloat(rng.nextUnit() - 0.5) * 0.9,
-                 rot: CGFloat(rng.nextUnit() - 0.5) * 0.02)
-        biasCache[seed] = b
-        return b
+        StrikeStyle(dx: 0, dy: 0, ink: 0.92, rotation: 0)
     }
 }
 
