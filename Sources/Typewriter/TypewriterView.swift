@@ -18,8 +18,11 @@ struct Metrics {
     let ascent: CGFloat
     let descent: CGFloat
     let left: CGFloat
-    let barY: CGFloat
-    let barHeight: CGFloat
+    let barCenterY: CGFloat
+    let barHeight: CGFloat = 3
+    let carriageWidth: CGFloat
+    let carriageHeight: CGFloat
+    let guideHeight: CGFloat
     let typingY: CGFloat
     let baseline: CGFloat
     let linePadding: CGFloat = 24
@@ -27,8 +30,7 @@ struct Metrics {
     init(size: CGSize, columns: Int = 72) {
         self.size = size
         self.columns = columns
-        // Courier has a fixed advance of 0.6 em.
-        let targetWidth = min(size.width * 0.56, 1000)
+        let targetWidth = min(size.width * 0.46, 860)
         let probe = CTFontCreateWithName("Courier" as CFString, 100, nil)
         let advance = Metrics.advance(of: probe) / 100
         let fontSize = (targetWidth / CGFloat(columns) / advance).rounded(.down)
@@ -38,10 +40,14 @@ struct Metrics {
         descent = CTFontGetDescent(font)
         lineHeight = (fontSize * 1.6).rounded()
         left = ((size.width - CGFloat(columns) * charWidth) / 2).rounded()
-        barY = (size.height * 0.14).rounded()
-        barHeight = 9
-        typingY = barY + barHeight + 4
+        barCenterY = (size.height * 0.14).rounded()
+        carriageHeight = max(14, (fontSize * 1.05).rounded())
+        carriageWidth = (carriageHeight * 4.6).rounded()
+        guideHeight = (fontSize * 0.55).rounded()
         baseline = (lineHeight * 0.32).rounded()
+        // The current line sits right above the type guide.
+        let baselineY = barCenterY + carriageHeight / 2 + guideHeight + 3
+        typingY = baselineY - baseline
     }
 
     private static func advance(of font: CTFont) -> CGFloat {
@@ -59,8 +65,8 @@ struct Metrics {
 }
 
 enum Palette {
-    static let paper = CGColor(srgbRed: 0.86, green: 0.865, blue: 0.895, alpha: 1)
-    static let ink = (r: CGFloat(0.10), g: CGFloat(0.095), b: CGFloat(0.09))
+    static let paper = CGColor(srgbRed: 0.85, green: 0.85, blue: 0.885, alpha: 1)
+    static let ink = (r: CGFloat(0.2), g: CGFloat(0.195), b: CGFloat(0.19))
 }
 
 /// Draws the glyphs (and correction traces) of one line of paper.
@@ -105,7 +111,7 @@ final class LineLayer: CALayer {
             draw(g.char, style: g.style, x: x, y: y0, inkScale: 0.07, blur: 1.4, in: ctx)
         }
         for g in glyphs where !g.char.isWhitespace {
-            draw(g.char, style: g.style, x: x0 + CGFloat(g.col) * m.charWidth, y: y0, inkScale: 1, blur: 0.9, in: ctx)
+            draw(g.char, style: g.style, x: x0 + CGFloat(g.col) * m.charWidth, y: y0, inkScale: 1, blur: 0.6, in: ctx)
         }
     }
 
@@ -118,7 +124,7 @@ final class LineLayer: CALayer {
         ctx.setFillColor(color)
         ctx.setStrokeColor(color)
         ctx.setLineWidth(0.12)
-        ctx.setTextDrawingMode(.fillStroke)
+        ctx.setTextDrawingMode(.fill)
         ctx.setShadow(offset: .zero, blur: blur, color: CGColor(srgbRed: Palette.ink.r, green: Palette.ink.g, blue: Palette.ink.b, alpha: alpha * 0.7))
         ctx.textPosition = .zero
         CTLineDraw(ctLine(for: c), ctx)
@@ -134,14 +140,13 @@ final class TypewriterView: NSView, NSTextInputClient {
 
     private let root = CALayer()
     private let paper = CALayer()
-    private let spotlight = CAGradientLayer()
-    private let hotspot = CAGradientLayer()
+    private let lowerPaper = CAGradientLayer()
+    private let spotlight = CALayer()
     private let lightClip = CALayer()
     private let vignette = CAGradientLayer()
     private let textContainer = CALayer()
     private let bar = CAGradientLayer()
-    private let barShadow = CAGradientLayer()
-    private let carriage = CAGradientLayer()
+    private let carriage = CALayer()
     private let markedLayer = CATextLayer()
     private let hintLayer = CATextLayer()
     private let noticeLayer = CATextLayer()
@@ -190,42 +195,35 @@ final class TypewriterView: NSView, NSTextInputClient {
         }
         root.addSublayer(paper)
 
+        vignette.type = .radial
+        vignette.colors = [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0), CGColor(srgbRed: 0.12, green: 0.1, blue: 0.2, alpha: 0.14)]
+        vignette.locations = [0, 0.5, 1]
+        vignette.startPoint = CGPoint(x: 0.5, y: 0.3)
+        vignette.endPoint = CGPoint(x: 1.2, y: 1.2)
+        vignette.frame = b
+        root.addSublayer(vignette)
+
         // The light only falls on the paper above the bar.
-        lightClip.frame = CGRect(x: 0, y: m.barY + m.barHeight, width: m.size.width, height: m.size.height)
+        lightClip.frame = CGRect(x: 0, y: m.barCenterY, width: m.size.width, height: m.size.height - m.barCenterY)
         lightClip.masksToBounds = true
         root.addSublayer(lightClip)
 
-        spotlight.type = .radial
-        spotlight.colors = [
-            CGColor(srgbRed: 1.0, green: 0.95, blue: 0.83, alpha: 1),
-            CGColor(srgbRed: 1.0, green: 0.96, blue: 0.88, alpha: 0.8),
-            CGColor(srgbRed: 0.98, green: 0.97, blue: 0.95, alpha: 0.35),
-            CGColor(srgbRed: 0.98, green: 0.97, blue: 0.96, alpha: 0),
-        ]
-        spotlight.locations = [0, 0.3, 0.65, 1]
-        spotlight.startPoint = CGPoint(x: 0.5, y: 0.5)
-        spotlight.endPoint = CGPoint(x: 1, y: 1)
-        spotlight.bounds = CGRect(x: 0, y: 0, width: m.size.width * 0.7, height: m.size.height * 1.7)
+        let coneSize = CGSize(width: m.size.width * 1.3, height: lightClip.bounds.height)
+        spotlight.contents = Self.makeConeImage(size: coneSize, screenHeight: m.size.height)
+        spotlight.contentsGravity = .resize
+        spotlight.magnificationFilter = .linear
+        spotlight.anchorPoint = CGPoint(x: 0.5, y: 0)
+        spotlight.bounds = CGRect(origin: .zero, size: coneSize)
+        spotlight.position = CGPoint(x: m.carriageX(col: 0), y: 0)
         lightClip.addSublayer(spotlight)
 
-        hotspot.type = .radial
-        hotspot.colors = [
-            CGColor(srgbRed: 1.0, green: 0.9, blue: 0.7, alpha: 0.75),
-            CGColor(srgbRed: 1.0, green: 0.93, blue: 0.8, alpha: 0.3),
-            CGColor(srgbRed: 1.0, green: 0.95, blue: 0.85, alpha: 0),
-        ]
-        hotspot.startPoint = CGPoint(x: 0.5, y: 0.5)
-        hotspot.endPoint = CGPoint(x: 1, y: 1)
-        hotspot.bounds = CGRect(x: 0, y: 0, width: m.size.width * 0.3, height: m.size.height * 0.6)
-        lightClip.addSublayer(hotspot)
-
-        vignette.type = .radial
-        vignette.colors = [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0), CGColor(srgbRed: 0.1, green: 0.1, blue: 0.2, alpha: 0.12)]
-        vignette.locations = [0, 0.55, 1]
-        vignette.startPoint = CGPoint(x: 0.5, y: 0.35)
-        vignette.endPoint = CGPoint(x: 1.15, y: 1.15)
-        vignette.frame = b
-        root.addSublayer(vignette)
+        // The paper below the bar is outside the light, but brighter.
+        lowerPaper.frame = CGRect(x: 0, y: 0, width: m.size.width, height: m.barCenterY)
+        lowerPaper.colors = [CGColor(srgbRed: 0.84, green: 0.845, blue: 0.875, alpha: 1),
+                             CGColor(srgbRed: 0.92, green: 0.92, blue: 0.94, alpha: 1)]
+        lowerPaper.startPoint = CGPoint(x: 0.5, y: 0)
+        lowerPaper.endPoint = CGPoint(x: 0.5, y: 1)
+        root.addSublayer(lowerPaper)
 
         textContainer.anchorPoint = .zero
         textContainer.bounds = .zero
@@ -240,40 +238,22 @@ final class TypewriterView: NSView, NSTextInputClient {
         markedLayer.bounds = CGRect(x: 0, y: 0, width: m.charWidth * 4, height: m.lineHeight)
         root.addSublayer(markedLayer)
 
-        // A soft shadow on the paper just above the bar.
-        barShadow.colors = [CGColor(gray: 0, alpha: 0.22), CGColor(gray: 0, alpha: 0)]
-        barShadow.startPoint = CGPoint(x: 0.5, y: 0)
-        barShadow.endPoint = CGPoint(x: 0.5, y: 1)
-        barShadow.frame = CGRect(x: 0, y: m.barY + m.barHeight, width: m.size.width, height: 5)
-        root.addSublayer(barShadow)
-
+        // A thin metal rod.
         bar.colors = [
-            CGColor(srgbRed: 0.16, green: 0.165, blue: 0.175, alpha: 1),
-            CGColor(srgbRed: 0.33, green: 0.34, blue: 0.36, alpha: 1),
-            CGColor(srgbRed: 0.62, green: 0.63, blue: 0.66, alpha: 1),
-            CGColor(srgbRed: 0.28, green: 0.29, blue: 0.31, alpha: 1),
+            CGColor(srgbRed: 0.20, green: 0.205, blue: 0.22, alpha: 1),
+            CGColor(srgbRed: 0.55, green: 0.56, blue: 0.59, alpha: 1),
+            CGColor(srgbRed: 0.30, green: 0.31, blue: 0.33, alpha: 1),
         ]
-        bar.locations = [0, 0.35, 0.7, 1]
         bar.startPoint = CGPoint(x: 0.5, y: 0)
         bar.endPoint = CGPoint(x: 0.5, y: 1)
-        bar.frame = CGRect(x: 0, y: m.barY, width: m.size.width, height: m.barHeight)
+        bar.frame = CGRect(x: 0, y: m.barCenterY - m.barHeight / 2, width: m.size.width, height: m.barHeight)
+        bar.shadowColor = CGColor(gray: 0, alpha: 1)
+        bar.shadowOpacity = 0.25
+        bar.shadowRadius = 1.5
+        bar.shadowOffset = CGSize(width: 0, height: -1.5)
         root.addSublayer(bar)
 
-        carriage.colors = [
-            CGColor(srgbRed: 0.72, green: 0.73, blue: 0.75, alpha: 1),
-            CGColor(srgbRed: 0.97, green: 0.97, blue: 0.98, alpha: 1),
-            CGColor(srgbRed: 0.80, green: 0.81, blue: 0.83, alpha: 1),
-        ]
-        carriage.startPoint = CGPoint(x: 0.5, y: 0)
-        carriage.endPoint = CGPoint(x: 0.5, y: 1)
-        carriage.cornerRadius = 2
-        carriage.bounds = CGRect(x: 0, y: 0, width: max(26, m.charWidth * 2.4), height: m.barHeight - 1)
-        carriage.position = CGPoint(x: m.carriageX(col: 0), y: m.barY + m.barHeight / 2 + 1)
-        carriage.shadowColor = CGColor(gray: 0, alpha: 1)
-        carriage.shadowOpacity = 0.35
-        carriage.shadowRadius = 2
-        carriage.shadowOffset = CGSize(width: 0, height: -1)
-        root.addSublayer(carriage)
+        setupCarriage()
 
         for t in [hintLayer, noticeLayer] {
             t.font = CTFontCreateWithName("Courier" as CFString, 13, nil)
@@ -284,7 +264,7 @@ final class TypewriterView: NSView, NSTextInputClient {
             root.addSublayer(t)
         }
         hintLayer.string = hint
-        hintLayer.frame = CGRect(x: 0, y: m.barY / 2 - 9, width: m.size.width, height: 18)
+        hintLayer.frame = CGRect(x: 0, y: m.barCenterY / 2 - 9, width: m.size.width, height: 18)
         noticeLayer.frame = CGRect(x: 0, y: m.size.height - 60, width: m.size.width, height: 18)
         noticeLayer.opacity = 0
 
@@ -296,10 +276,102 @@ final class TypewriterView: NSView, NSTextInputClient {
         }
     }
 
+    /// A white capsule on the rod with a small lamp lens, and a T-shaped type guide that marks the print position.
+    private func setupCarriage() {
+        let m = metrics
+        let w = m.carriageWidth, h = m.carriageHeight
+        carriage.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        carriage.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+        carriage.position = CGPoint(x: m.carriageX(col: 0), y: m.barCenterY)
+
+        let body = CAGradientLayer()
+        body.frame = carriage.bounds
+        body.cornerRadius = h / 2
+        body.colors = [CGColor(srgbRed: 0.84, green: 0.845, blue: 0.86, alpha: 1),
+                       CGColor(srgbRed: 0.97, green: 0.97, blue: 0.975, alpha: 1),
+                       CGColor(srgbRed: 0.995, green: 0.995, blue: 1, alpha: 1)]
+        body.locations = [0, 0.45, 1]
+        body.startPoint = CGPoint(x: 0.5, y: 0)
+        body.endPoint = CGPoint(x: 0.5, y: 1)
+        body.shadowColor = CGColor(gray: 0, alpha: 1)
+        body.shadowOpacity = 0.3
+        body.shadowRadius = 3
+        body.shadowOffset = CGSize(width: 0, height: -2)
+        body.borderColor = CGColor(gray: 0.6, alpha: 0.35)
+        body.borderWidth = 0.5
+        carriage.addSublayer(body)
+
+        // The lamp lens.
+        let lens = CAGradientLayer()
+        let d = max(4, (h * 0.32).rounded())
+        lens.type = .radial
+        lens.colors = [CGColor(srgbRed: 0.55, green: 0.5, blue: 0.4, alpha: 1), CGColor(srgbRed: 0.18, green: 0.18, blue: 0.2, alpha: 1)]
+        lens.startPoint = CGPoint(x: 0.35, y: 0.65)
+        lens.endPoint = CGPoint(x: 1, y: 1)
+        lens.frame = CGRect(x: w / 2 - d / 2 - w * 0.12, y: h / 2 - d / 2, width: d, height: d)
+        lens.cornerRadius = d / 2
+        lens.masksToBounds = true
+        carriage.addSublayer(lens)
+
+        // The type guide.
+        let guideColor = CGColor(srgbRed: 0.2, green: 0.2, blue: 0.22, alpha: 1)
+        let stem = CALayer()
+        stem.backgroundColor = guideColor
+        stem.frame = CGRect(x: w / 2 - 0.75, y: h, width: 1.5, height: m.guideHeight - 1.5)
+        carriage.addSublayer(stem)
+        let cap = CALayer()
+        cap.backgroundColor = guideColor
+        cap.frame = CGRect(x: w / 2 - m.charWidth * 0.55, y: h + m.guideHeight - 1.5, width: m.charWidth * 1.1, height: 1.5)
+        carriage.addSublayer(cap)
+        carriage.masksToBounds = false
+        root.addSublayer(carriage)
+    }
+
+    /// The light cone of the carriage lamp: narrow at the lamp, wide at the top, warm close to the lamp.
+    private static func makeConeImage(size: CGSize, screenHeight: CGFloat) -> CGImage? {
+        let step: CGFloat = 3 // points per pixel; the layer scales it up smoothly
+        let w = Int(size.width / step), h = Int(size.height / step)
+        guard w > 0, h > 0 else { return nil }
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let cx = CGFloat(w) / 2
+        let apexBelow: CGFloat = 14 // the virtual apex sits a bit below the lamp
+        let halfAngle: CGFloat = 0.85
+        let reach = screenHeight * 1.05
+        func smooth(_ a: CGFloat, _ b: CGFloat, _ x: CGFloat) -> CGFloat {
+            let t = max(0, min(1, (x - a) / (b - a)))
+            return t * t * (3 - 2 * t)
+        }
+        for row in 0..<h {
+            let y = CGFloat(h - 1 - row) * step + apexBelow // distance above the apex, in points
+            for col in 0..<w {
+                let dx = (CGFloat(col) - cx) * step
+                let dist = (dx * dx + y * y).squareRoot()
+                let angle = atan2(abs(dx), y)
+                let edge = 1 - smooth(halfAngle * 0.45, halfAngle * 1.05, angle)
+                let falloff = (1 - smooth(reach * 0.3, reach, dist)) * (0.7 + 0.3 * exp(-dist / (screenHeight * 0.3)))
+                let glow = exp(-dist / 40) * 0.8
+                let a = min(1, edge * falloff * 0.97 + glow)
+                let warm = exp(-dist / (screenHeight * 0.45))
+                let r: CGFloat = 1
+                let g = 0.985 - 0.07 * warm
+                let bl = 0.94 - 0.26 * warm
+                let i = (row * w + col) * 4
+                px[i] = UInt8(r * a * 255)
+                px[i + 1] = UInt8(g * a * 255)
+                px[i + 2] = UInt8(bl * a * 255)
+                px[i + 3] = UInt8(a * 255)
+            }
+        }
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        return ctx.makeImage()
+    }
+
     private static func makeNoiseImage(width w: Int, height h: Int) -> CGImage? {
         var px = [UInt8](repeating: 0, count: w * h * 4)
         var rng = SplitMix64(seed: 42)
-        let base: (Double, Double, Double) = (0.86, 0.865, 0.895)
+        let base: (Double, Double, Double) = (0.85, 0.85, 0.885)
         for i in 0..<(w * h) {
             let n = (rng.nextUnit() - 0.5) * 0.018
             px[i * 4] = UInt8(max(0, min(255, (base.0 + n) * 255)))
@@ -367,6 +439,7 @@ final class TypewriterView: NSView, NSTextInputClient {
         let x = m.carriageX(col: layout.caretCol)
         let containerY = m.typingY + CGFloat(caretLine) * m.lineHeight
 
+        // The lamp sits in the carriage, so the light moves together with it.
         CATransaction.begin()
         if !animated {
             CATransaction.setDisableActions(true)
@@ -374,25 +447,13 @@ final class TypewriterView: NSView, NSTextInputClient {
             CATransaction.setAnimationDuration(0.38)
             CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(controlPoints: 0.5, 0, 0.2, 1))
         } else {
-            CATransaction.setAnimationDuration(0.05)
+            CATransaction.setAnimationDuration(0.06)
             CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         }
         carriage.position = CGPoint(x: x, y: carriage.position.y)
+        spotlight.position = CGPoint(x: x, y: spotlight.position.y)
         textContainer.position = CGPoint(x: textContainer.position.x, y: containerY)
         markedLayer.position = CGPoint(x: x - m.charWidth / 2, y: m.typingY + m.baseline - m.descent - 2)
-        CATransaction.commit()
-
-        // The light follows with a little lag.
-        CATransaction.begin()
-        if animated {
-            CATransaction.setAnimationDuration(lineChanged ? 0.6 : 0.35)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        } else {
-            CATransaction.setDisableActions(true)
-        }
-        let lightBaseY: CGFloat = 0 // bottom of lightClip
-        spotlight.position = CGPoint(x: x, y: lightBaseY)
-        hotspot.position = CGPoint(x: x, y: lightBaseY)
         CATransaction.commit()
 
         lastCaretLine = caretLine
