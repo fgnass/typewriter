@@ -17,6 +17,7 @@ final class SoundEngine {
     private var nextVoice = 0
     private var buffers: [Kind: [AVAudioPCMBuffer]] = [:]
     private var lastVariant: [Kind: Int] = [:]
+    private var volumeScale: [Kind: Float] = [:]
 
     init() {
         for _ in 0..<12 {
@@ -52,7 +53,7 @@ final class SoundEngine {
         voice.player.stop()
         let pitchy = kind == .key || kind == .space || kind == .backspace
         voice.speed.rate = pitchy ? Float.random(in: 0.96...1.04) : Float.random(in: 0.99...1.01)
-        voice.player.volume = volume * (pitchy ? Float.random(in: 0.75...1.0) : 1)
+        voice.player.volume = volume * (volumeScale[kind] ?? 1) * (pitchy ? Float.random(in: 0.75...1.0) : 1)
         voice.player.scheduleBuffer(list[idx], at: nil)
         voice.player.play()
     }
@@ -68,9 +69,30 @@ final class SoundEngine {
                 return ["wav", "caf", "aif", "aiff", "mp3", "m4a"].contains($0.pathExtension.lowercased())
                     && (name == kind.rawValue || (name.hasPrefix(kind.rawValue) && Int(name.dropFirst(kind.rawValue.count)) != nil))
             }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            let loaded = matching.compactMap(load)
-            buffers[kind] = loaded.isEmpty ? Synth.make(kind, format: format) : loaded
+            var loaded = matching.compactMap(load)
+            // The recorded strikes start with ~40 ms of key travel noise. Skip most of it so the sound feels immediate.
+            if kind == .key || kind == .space { loaded = loaded.compactMap { trim($0, seconds: 0.03) } }
+            buffers[kind] = loaded
         }
+        let hasSamples = !(buffers[.key] ?? []).isEmpty
+        if hasSamples {
+            // No recordings exist for these. A soft strike sounds better than a synthetic sound next to real samples.
+            if buffers[.backspace]?.isEmpty ?? true { buffers[.backspace] = buffers[.key] }
+            volumeScale[.backspace] = 0.55
+        }
+        for kind in Kind.allCases where buffers[kind]?.isEmpty ?? true {
+            buffers[kind] = hasSamples && kind == .feed ? [] : Synth.make(kind, format: format)
+        }
+    }
+
+    private func trim(_ b: AVAudioPCMBuffer, seconds: Double) -> AVAudioPCMBuffer? {
+        let skip = AVAudioFrameCount(seconds * b.format.sampleRate)
+        guard b.frameLength > skip, let out = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength - skip) else { return b }
+        out.frameLength = b.frameLength - skip
+        for ch in 0..<Int(b.format.channelCount) {
+            memcpy(out.floatChannelData![ch], b.floatChannelData![ch] + Int(skip), Int(out.frameLength) * MemoryLayout<Float>.size)
+        }
+        return out
     }
 
     private func load(_ url: URL) -> AVAudioPCMBuffer? {
