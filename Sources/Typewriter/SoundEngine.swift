@@ -45,9 +45,16 @@ final class SoundEngine {
         engine.stop()
     }
 
+    var humEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "humEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "humEnabled") }
+    }
+
+    var hasHum: Bool { !(buffers[.hum] ?? []).isEmpty }
+
     /// The quiet motor hum of an electric typewriter, looped while the page is open.
     func startHum() {
-        guard enabled, let hum = buffers[.hum]?.first else { return }
+        guard enabled, humEnabled, let hum = buffers[.hum]?.first else { return }
         start()
         humPlayer.stop()
         humPlayer.volume = 0.35
@@ -87,8 +94,9 @@ final class SoundEngine {
                     && (name == kind.rawValue || (name.hasPrefix(kind.rawValue) && Int(name.dropFirst(kind.rawValue.count)) != nil))
             }.sorted { $0.lastPathComponent < $1.lastPathComponent }
             var loaded = matching.compactMap(load)
-            // The recorded strikes start with ~40 ms of key travel noise. Skip most of it so the sound feels immediate.
-            if kind == .key || kind == .space { loaded = loaded.compactMap { trim($0, seconds: 0.03) } }
+            // Some recordings start with key travel noise before the strike. Start right at the strike,
+            // so the sound feels immediate.
+            if kind == .key || kind == .space || kind == .backspace { loaded = loaded.compactMap(trimToOnset) }
             buffers[kind] = loaded
         }
         let hasSamples = !(buffers[.key] ?? []).isEmpty
@@ -102,8 +110,22 @@ final class SoundEngine {
         }
     }
 
+    /// Removes everything before the first sample that reaches 30 % of the peak, minus 2 ms.
+    private func trimToOnset(_ b: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let data = b.floatChannelData?[0] else { return b }
+        let n = Int(b.frameLength)
+        var peak: Float = 0
+        for i in 0..<n { peak = max(peak, abs(data[i])) }
+        guard peak > 0 else { return b }
+        var onset = 0
+        while onset < n, abs(data[onset]) < peak * 0.3 { onset += 1 }
+        let start = max(0, onset - Int(0.002 * b.format.sampleRate))
+        return trim(b, seconds: Double(start) / b.format.sampleRate)
+    }
+
     private func trim(_ b: AVAudioPCMBuffer, seconds: Double) -> AVAudioPCMBuffer? {
         let skip = AVAudioFrameCount(seconds * b.format.sampleRate)
+        guard skip > 0 else { return b }
         guard b.frameLength > skip, let out = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength - skip) else { return b }
         out.frameLength = b.frameLength - skip
         for ch in 0..<Int(b.format.channelCount) {

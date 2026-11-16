@@ -36,6 +36,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sound.target = self
         sound.tag = 1
         menu.addItem(sound)
+        if sounds.hasHum {
+            let hum = NSMenuItem(title: "Motor Hum", action: #selector(toggleHum), keyEquivalent: "")
+            hum.target = self
+            hum.tag = 3
+            hum.indentationLevel = 1
+            menu.addItem(hum)
+        }
         let colorItem = NSMenuItem(title: "Hardware Color", action: nil, keyEquivalent: "")
         colorItem.submenu = colorMenu
         menu.addItem(colorItem)
@@ -61,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.item(withTag: 1)?.state = sounds.enabled ? .on : .off
+        menu.item(withTag: 3)?.state = sounds.humEnabled ? .on : .off
         if Inserter.isTrusted, let ax = menu.item(withTag: 2) { menu.removeItem(ax) }
         colorMenu.removeAllItems()
         for (i, c) in HardwareColor.all.enumerated() {
@@ -110,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     @objc private func toggleSound() { sounds.enabled.toggle() }
+    @objc private func toggleHum() { sounds.humEnabled.toggle() }
     @objc private func showHistory() { NSWorkspace.shared.open(History.directory) }
     @objc private func requestAccess() { Inserter.requestTrust() }
 

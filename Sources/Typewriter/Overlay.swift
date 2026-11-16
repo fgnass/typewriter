@@ -104,7 +104,7 @@ final class OverlayController: TypewriterViewDelegate {
         History.save(text)
         History.clearDraft()
         let focus = self.focus
-        sounds.play(.carriageReturn)
+        sounds.play(.key, volume: 0.6) // A short, light click instead of a long carriage return.
         close {
             guard !text.isEmpty else { return }
             switch focus {
