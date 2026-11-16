@@ -145,7 +145,8 @@ final class PaperScene {
 
     private let paper = CALayer()
     private let light = CALayer()
-    private let rod = CAGradientLayer()
+    private let rod = RodLayer()
+    private let carriageBody = CarriageBodyLayer()
     private let carriage = CALayer()
     private let scale: CGFloat
     private var lineLayers: [Int: LineLayer] = [:]
@@ -187,12 +188,7 @@ final class PaperScene {
         light.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
         root.addSublayer(light)
 
-        // A chrome rod.
-        // Chrome: dark lower edge, a bright reflection of the paper above the middle, a sharp highlight line.
-        rod.colors = [0.16, 0.26, 0.4, 0.3, 0.55, 0.82, 0.5, 0.28].map { CGColor(gray: $0, alpha: 1) }
-        rod.locations = [0, 0.18, 0.38, 0.5, 0.62, 0.74, 0.86, 1]
-        rod.startPoint = CGPoint(x: 0.5, y: 0)
-        rod.endPoint = CGPoint(x: 0.5, y: 1)
+        rod.contentsScale = scale
         rod.frame = CGRect(x: 0, y: m.rodY - m.rodHeight / 2, width: m.size.width, height: m.rodHeight)
         rod.shadowColor = CGColor(gray: 0, alpha: 1)
         rod.shadowOpacity = 0.22
@@ -224,7 +220,7 @@ final class PaperScene {
         carriage.anchorPoint = CGPoint(x: Self.carriageAnchorX, y: 0.5)
         carriage.position = CGPoint(x: m.printX(col: 0), y: m.rodY)
 
-        let body = CarriageBodyLayer()
+        let body = carriageBody
         body.frame = carriage.bounds.insetBy(dx: -pad, dy: -pad)
         body.pad = pad
         body.contentsScale = scale
@@ -247,6 +243,16 @@ final class PaperScene {
         carriage.addSublayer(bar)
 
         root.addSublayer(carriage)
+        applyAppearance()
+    }
+
+    /// Applies the hardware color to the carriage and/or the rod.
+    func applyAppearance() {
+        let color = Appearance.color
+        carriageBody.color = Appearance.carriageColored ? color : nil
+        rod.color = Appearance.rodColored ? color : nil
+        carriageBody.setNeedsDisplay()
+        rod.setNeedsDisplay()
     }
 
     /// The lamp, and with it the print position, is in the middle of the carriage.
@@ -399,9 +405,63 @@ final class PaperScene {
     }
 }
 
-/// The carriage body: an opaque white pill with a soft gloss and two small dots.
+private func makeGradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
+    CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!, colors: stops.map(\.1) as CFArray, locations: stops.map(\.0))!
+}
+
+/// Fine grain of bead-blasted aluminum, drawn tiled at low alpha.
+private let aluminumGrain: CGImage? = {
+    let n = 128
+    var px = [UInt8](repeating: 0, count: n * n * 4)
+    var rng = SplitMix64(seed: 3)
+    for i in 0..<(n * n) {
+        let v = UInt8(rng.nextUnit() * 255)
+        px[i * 4] = v; px[i * 4 + 1] = v; px[i * 4 + 2] = v; px[i * 4 + 3] = 255
+    }
+    let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+    return px.withUnsafeMutableBytes { buf in
+        CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                  space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
+    }
+}()
+
+/// The rod: black high gloss, or anodized aluminum in the hardware color.
+final class RodLayer: CALayer {
+    var color: HardwareColor?
+
+    override func action(forKey event: String) -> CAAction? { NSNull() }
+
+    override func draw(in ctx: CGContext) {
+        let b = bounds
+        let stops: [(CGFloat, CGColor)]
+        if let c = color {
+            stops = [
+                (0, c.scaled(0.55)), (0.25, c.scaled(0.78)), (0.5, c.scaled(0.95)),
+                (0.66, c.lifted(0.35)), (0.8, c.scaled(1.0)), (1, c.scaled(0.8)),
+            ]
+        } else {
+            // Black lacquer: deep black with a crisp reflection band of the bright paper above.
+            stops = [
+                (0, CGColor(gray: 0.01, alpha: 1)), (0.3, CGColor(gray: 0.04, alpha: 1)), (0.52, CGColor(gray: 0.09, alpha: 1)),
+                (0.62, CGColor(gray: 0.42, alpha: 1)), (0.72, CGColor(gray: 0.1, alpha: 1)), (0.9, CGColor(gray: 0.05, alpha: 1)),
+                (1, CGColor(gray: 0.22, alpha: 1)),
+            ]
+        }
+        ctx.drawLinearGradient(makeGradient(stops), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
+        if color != nil, let grain = aluminumGrain {
+            ctx.saveGState()
+            ctx.setAlpha(0.05)
+            ctx.setBlendMode(.overlay)
+            ctx.draw(grain, in: CGRect(x: 0, y: 0, width: 64, height: 64), byTiling: true)
+            ctx.restoreGState()
+        }
+    }
+}
+
+/// The carriage body: a pill of anodized aluminum in the hardware color, or white high gloss.
 final class CarriageBodyLayer: CALayer {
     var pad: CGFloat = 5
+    var color: HardwareColor?
 
     override func action(forKey event: String) -> CAAction? { NSNull() }
 
@@ -409,52 +469,86 @@ final class CarriageBodyLayer: CALayer {
         let b = bounds.insetBy(dx: pad, dy: pad)
         let r = b.height / 2
         let path = CGPath(roundedRect: b, cornerWidth: r, cornerHeight: r, transform: nil)
-        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-        func gradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
-            CGGradient(colorsSpace: cs, colors: stops.map(\.1) as CFArray, locations: stops.map(\.0))!
-        }
 
         // Contact shadow on the paper.
         ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 3, color: CGColor(gray: 0, alpha: 0.28))
+        ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 3, color: CGColor(gray: 0, alpha: 0.3))
         ctx.addPath(path)
-        ctx.setFillColor(CGColor(gray: 0.96, alpha: 1))
+        ctx.setFillColor(color?.scaled(0.9) ?? CGColor(gray: 0.96, alpha: 1))
         ctx.fillPath()
         ctx.restoreGState()
 
         ctx.saveGState()
         ctx.addPath(path)
         ctx.clip()
-        // White lacquer, slightly shaded at the bottom.
-        ctx.drawLinearGradient(gradient([
-            (0, CGColor(gray: 0.86, alpha: 1)),
-            (0.35, CGColor(gray: 0.95, alpha: 1)),
-            (0.7, CGColor(gray: 0.99, alpha: 1)),
-            (1, CGColor(gray: 1, alpha: 1)),
-        ]), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
-        // Soft gloss on the upper half.
-        let gloss = CGRect(x: b.minX + r * 0.6, y: b.midY + 0.5, width: b.width - r * 1.2, height: b.height / 2 - 1.5)
-        ctx.addPath(CGPath(roundedRect: gloss, cornerWidth: gloss.height / 2, cornerHeight: gloss.height / 2, transform: nil))
-        ctx.clip()
-        ctx.drawLinearGradient(gradient([
-            (0, CGColor(gray: 1, alpha: 0)),
-            (1, CGColor(gray: 1, alpha: 0.9)),
-        ]), start: CGPoint(x: 0, y: gloss.minY), end: CGPoint(x: 0, y: gloss.maxY), options: [])
+        if let c = color {
+            drawAluminum(c, in: b, radius: r, ctx: ctx)
+        } else {
+            drawGloss(in: b, radius: r, ctx: ctx)
+        }
         ctx.restoreGState()
 
         ctx.addPath(path)
-        ctx.setStrokeColor(CGColor(gray: 0.5, alpha: 0.22))
+        ctx.setStrokeColor(CGColor(gray: 0.3, alpha: color == nil ? 0.22 : 0.3))
         ctx.setLineWidth(0.5)
         ctx.strokePath()
 
         // Two small dots.
         let d = max(2.5, (b.height * 0.18).rounded())
         let cy = b.midY - 0.5
-        for (fx, gray) in [(0.36, 0.72), (0.47, 0.22)] as [(CGFloat, CGFloat)] {
+        let dark = (color.map { ($0.r + $0.g + $0.b) / 3 } ?? 1) < 0.35
+        for (fx, gray) in [(0.36, dark ? 0.55 : 0.72), (0.47, dark ? 0.08 : 0.22)] as [(CGFloat, CGFloat)] {
             let dot = CGRect(x: b.minX + b.width * fx - d / 2, y: cy - d / 2, width: d, height: d)
             ctx.addEllipse(in: dot)
             ctx.setFillColor(CGColor(gray: gray, alpha: 1))
             ctx.fillPath()
         }
+    }
+
+    private func drawGloss(in b: CGRect, radius r: CGFloat, ctx: CGContext) {
+        ctx.drawLinearGradient(makeGradient([
+            (0, CGColor(gray: 0.86, alpha: 1)), (0.35, CGColor(gray: 0.95, alpha: 1)),
+            (0.7, CGColor(gray: 0.99, alpha: 1)), (1, CGColor(gray: 1, alpha: 1)),
+        ]), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
+        let gloss = CGRect(x: b.minX + r * 0.6, y: b.midY + 0.5, width: b.width - r * 1.2, height: b.height / 2 - 1.5)
+        ctx.addPath(CGPath(roundedRect: gloss, cornerWidth: gloss.height / 2, cornerHeight: gloss.height / 2, transform: nil))
+        ctx.clip()
+        ctx.drawLinearGradient(makeGradient([(0, CGColor(gray: 1, alpha: 0)), (1, CGColor(gray: 1, alpha: 0.9))]),
+                               start: CGPoint(x: 0, y: gloss.minY), end: CGPoint(x: 0, y: gloss.maxY), options: [])
+    }
+
+    /// Satin anodized aluminum: soft vertical shading, fine grain, and a bright chamfer on the top edge.
+    private func drawAluminum(_ c: HardwareColor, in b: CGRect, radius r: CGFloat, ctx: CGContext) {
+        ctx.drawLinearGradient(makeGradient([
+            (0, c.scaled(0.78)), (0.3, c.scaled(0.93)), (0.65, c.scaled(1.03)), (1, c.lifted(0.18)),
+        ]), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
+        // Broad satin sheen from the lamp above.
+        ctx.drawRadialGradient(makeGradient([(0, CGColor(gray: 1, alpha: 0.22)), (1, CGColor(gray: 1, alpha: 0))]),
+                               startCenter: CGPoint(x: b.midX, y: b.maxY), startRadius: 0,
+                               endCenter: CGPoint(x: b.midX, y: b.maxY), endRadius: b.width * 0.55, options: [])
+        if let grain = aluminumGrain {
+            ctx.saveGState()
+            ctx.setAlpha(0.07)
+            ctx.setBlendMode(.overlay)
+            ctx.draw(grain, in: CGRect(x: 0, y: 0, width: 64, height: 64), byTiling: true)
+            ctx.restoreGState()
+        }
+        // Diamond-cut chamfer: a thin bright line along the upper edge, a darker one along the lower edge.
+        let inset = b.insetBy(dx: 0.6, dy: 0.6)
+        let edge = CGPath(roundedRect: inset, cornerWidth: r - 0.6, cornerHeight: r - 0.6, transform: nil)
+        ctx.saveGState()
+        ctx.clip(to: CGRect(x: b.minX, y: b.midY, width: b.width, height: b.height / 2))
+        ctx.addPath(edge)
+        ctx.setStrokeColor(c.lifted(0.75, alpha: 0.95))
+        ctx.setLineWidth(0.9)
+        ctx.strokePath()
+        ctx.restoreGState()
+        ctx.saveGState()
+        ctx.clip(to: CGRect(x: b.minX, y: b.minY, width: b.width, height: b.height / 2))
+        ctx.addPath(edge)
+        ctx.setStrokeColor(c.scaled(0.6, alpha: 0.6))
+        ctx.setLineWidth(0.7)
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 }

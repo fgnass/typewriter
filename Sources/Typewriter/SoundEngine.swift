@@ -3,7 +3,7 @@ import AVFoundation
 /// Plays typewriter sounds with small random variations, so repeated strikes do not sound identical.
 final class SoundEngine {
     enum Kind: String, CaseIterable {
-        case key, space, carriageReturn = "return", bell, backspace, feed
+        case key, space, carriageReturn = "return", bell, backspace, feed, hum
     }
 
     var enabled: Bool {
@@ -18,6 +18,7 @@ final class SoundEngine {
     private var buffers: [Kind: [AVAudioPCMBuffer]] = [:]
     private var lastVariant: [Kind: Int] = [:]
     private var volumeScale: [Kind: Float] = [:]
+    private let humPlayer = AVAudioPlayerNode()
 
     init() {
         for _ in 0..<12 {
@@ -29,6 +30,8 @@ final class SoundEngine {
             engine.connect(v, to: engine.mainMixerNode, format: format)
             voices.append((p, v))
         }
+        engine.attach(humPlayer)
+        engine.connect(humPlayer, to: engine.mainMixerNode, format: format)
         loadSamples()
         engine.prepare()
     }
@@ -40,6 +43,20 @@ final class SoundEngine {
 
     func stop() {
         engine.stop()
+    }
+
+    /// The quiet motor hum of an electric typewriter, looped while the page is open.
+    func startHum() {
+        guard enabled, let hum = buffers[.hum]?.first else { return }
+        start()
+        humPlayer.stop()
+        humPlayer.volume = 0.35
+        humPlayer.scheduleBuffer(hum, at: nil, options: .loops)
+        humPlayer.play()
+    }
+
+    func stopHum() {
+        humPlayer.stop()
     }
 
     func play(_ kind: Kind, volume: Float = 1) {
@@ -81,7 +98,7 @@ final class SoundEngine {
             volumeScale[.backspace] = 0.55
         }
         for kind in Kind.allCases where buffers[kind]?.isEmpty ?? true {
-            buffers[kind] = hasSamples && kind == .feed ? [] : Synth.make(kind, format: format)
+            buffers[kind] = (hasSamples && kind == .feed) || kind == .hum ? [] : Synth.make(kind, format: format)
         }
     }
 
@@ -125,6 +142,7 @@ enum Synth {
         case .bell: return [bell(format)]
         case .carriageReturn: return [ratchet(format)]
         case .feed: return [ratchet(format, clicks: 3)]
+        case .hum: return []
         }
     }
 

@@ -109,16 +109,28 @@ final class TypewriterView: NSView, NSTextInputClient {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command) else { return super.performKeyEquivalent(with: event) }
-        if isReturn(event) {
-            delegate?.typewriterViewDidCommit(self)
+        switch event.keyCode {
+        case 36, 76: delegate?.typewriterViewDidCommit(self)
+        // ⌘← / ⌘→ cycle the hardware color, ⌘↑ / ⌘↓ cycle the colored part.
+        case 123: changeAppearance { Appearance.cycleColor(-1) }
+        case 124: changeAppearance { Appearance.cycleColor(1) }
+        case 125: changeAppearance { Appearance.cyclePart(1) }
+        case 126: changeAppearance { Appearance.cyclePart(-1) }
+        default: break
         }
         return true // Swallow all other command shortcuts.
+    }
+
+    private func changeAppearance(_ change: () -> Void) {
+        change()
+        scene.applyAppearance()
+        showNotice("\(Appearance.color.name) · \(Appearance.part.title)", duration: 1.5)
     }
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command) {
-            if isReturn(event) { delegate?.typewriterViewDidCommit(self) }
+            _ = performKeyEquivalent(with: event)
             return
         }
         if event.keyCode == 53, !hasMarkedText() { // Escape
