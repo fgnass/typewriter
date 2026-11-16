@@ -15,7 +15,7 @@ struct Metrics {
     let capHeight: CGFloat
     let left: CGFloat
     let rodY: CGFloat
-    let rodHeight: CGFloat = 5
+    let rodHeight: CGFloat = 6
     let carriageWidth: CGFloat
     let carriageHeight: CGFloat
     /// Baseline of the current line, in screen coordinates.
@@ -33,7 +33,7 @@ struct Metrics {
     init(size: CGSize, columns: Int = 72) {
         self.size = size
         self.columns = columns
-        let targetWidth = min(size.width * 0.46, 860)
+        let targetWidth = min(size.width * 0.62, 1150)
         let probe = CTFontCreateWithName(Metrics.fontName, 100, nil)
         let advance = Metrics.advance(of: probe) / 100
         let fontSize = (targetWidth / CGFloat(columns) / advance).rounded(.down)
@@ -45,8 +45,8 @@ struct Metrics {
         lineHeight = (fontSize * 1.6).rounded()
         left = ((size.width - CGFloat(columns) * charWidth) / 2).rounded()
         rodY = (size.height * 0.14).rounded()
-        carriageWidth = (charWidth * 5.5).rounded()
-        carriageHeight = (charWidth * 1.75).rounded()
+        carriageWidth = (charWidth * 7.4).rounded()
+        carriageHeight = (charWidth * 1.55).rounded()
         baselineY = rodY + carriageHeight / 2 + 3
         lampY = baselineY + capHeight.rounded()
         baseline = (lineHeight * 0.32).rounded()
@@ -70,10 +70,12 @@ struct Metrics {
 
 enum Palette {
     /// The paper itself. The lighting layer gives it its final color.
-    static let paperAlbedo: CGFloat = 0.985
-    static let ink: CGFloat = 0.3
+    static let paperAlbedo: CGFloat = 1.0
+    static let ink: CGFloat = 0.24
     /// Paper color outside the light.
-    static let ambient: (r: Double, g: Double, b: Double) = (0.835, 0.845, 0.915)
+    static let ambient: (r: Double, g: Double, b: Double) = (0.77, 0.78, 0.84)
+    /// Paper color in the full light of the lamp.
+    static let lamp: (r: Double, g: Double, b: Double) = (0.985, 0.958, 0.885)
     static var paperBackground: CGColor {
         CGColor(srgbRed: paperAlbedo * ambient.r, green: paperAlbedo * ambient.g, blue: paperAlbedo * ambient.b, alpha: 1)
     }
@@ -187,7 +189,7 @@ final class PaperScene {
 
         // A chrome rod.
         // Chrome: dark lower edge, a bright reflection of the paper above the middle, a sharp highlight line.
-        rod.colors = [0.22, 0.42, 0.62, 0.5, 0.78, 0.97, 0.86, 0.45].map { CGColor(gray: $0, alpha: 1) }
+        rod.colors = [0.16, 0.26, 0.4, 0.3, 0.55, 0.82, 0.5, 0.28].map { CGColor(gray: $0, alpha: 1) }
         rod.locations = [0, 0.18, 0.38, 0.5, 0.62, 0.74, 0.86, 1]
         rod.startPoint = CGPoint(x: 0.5, y: 0)
         rod.endPoint = CGPoint(x: 0.5, y: 1)
@@ -328,7 +330,7 @@ final class PaperScene {
     private static func makePaperImage(width w: Int, height h: Int) -> CGImage? {
         var px = [UInt8](repeating: 0, count: w * h * 4)
         var rng = SplitMix64(seed: 42)
-        let base = Double(Palette.paperAlbedo)
+        let base = Double(Palette.paperAlbedo) - 0.008
         for i in 0..<(w * h) {
             let v = UInt8(max(0, min(255, (base + (rng.nextUnit() - 0.5) * 0.012) * 255)))
             px[i * 4] = v
@@ -340,9 +342,10 @@ final class PaperScene {
     }
 
     /// The lighting of the page, twice as wide as the screen and centered on the lamp.
-    /// Outside the beam it is the cool ambient light. The beam is a wide wedge with straight sides.
-    /// Its apex is in the carriage, it has full strength down to the rod, where it ends with a hard edge,
-    /// and it fades out softly towards the top.
+    /// Values are measured from the reference: a very wide beam (the sides are only about 15° above
+    /// the rod), full strength right at the carriage, and a smooth falloff with the distance to the lamp
+    /// that reaches over the whole page. Outside the beam the paper gets only the cool ambient light,
+    /// which leaves flat shadow wedges left and right of the carriage.
     private static func makeLightImage(metrics m: Metrics) -> CGImage? {
         let step = 2.0
         let W = Double(m.size.width), H = Double(m.size.height)
@@ -351,11 +354,12 @@ final class PaperScene {
         var rng = SplitMix64(seed: 7)
         let floorY = Double(m.rodY + m.rodHeight / 2)
         let amb = Palette.ambient
-        let half = 52.0 * .pi / 180
+        let peak = Palette.lamp
+        let half = 75.0 * .pi / 180
         // The virtual apex lies below the carriage, so the beam is as wide as the carriage where it leaves it.
-        let carriageTop = Double(m.rodY + m.carriageHeight / 2)
-        let apexY = carriageTop - Double(m.carriageWidth / 2) * 0.8 / tan(half)
-        let soft = 0.07
+        let apexY = Double(m.rodY + m.carriageHeight / 2) - Double(m.carriageWidth / 2) / tan(half)
+        let soft = 0.1
+        let reach = 0.7 * H
         func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
             let t = max(0, min(1, (x - e0) / (e1 - e0)))
             return t * t * (3 - 2 * t)
@@ -367,25 +371,20 @@ final class PaperScene {
             for col in 0..<w {
                 let u = (Double(col) + 0.5) * step - W
                 var lit = 0.0
-                var d = 0.0
                 if y >= floorY {
-                    d = (u * u + v * v).squareRoot()
+                    let d = (u * u + v * v).squareRoot()
                     let angle = atan2(abs(u), v)
-                    let sides = 1 - smooth(half - soft, half + soft, angle)
-                    let top = 1 - smooth(0.4 * H, 0.8 * H, d)
-                    lit = sides * top
+                    // The edge gets softer with distance, like a real penumbra.
+                    let s = soft * min(1, 0.25 + d / (0.5 * H))
+                    let beam = 1 - smooth(half - s, half + s, angle)
+                    let falloff = exp(-(d / reach) * (d / reach))
+                    lit = beam * falloff
                 }
-                // Warm cream close to the lamp, more neutral further up.
-                let t = min(1, d / (0.6 * H))
-                let t1 = min(1, t * 2), t2 = max(0, t * 2 - 1)
-                let cr = mix(mix(1.0, 0.995, t1), 0.95, t2)
-                let cg = mix(mix(0.97, 0.95, t1), 0.925, t2)
-                let cb = mix(mix(0.85, 0.885, t1), 0.92, t2)
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
-                px[i] = q(mix(amb.r, cr, lit))
-                px[i + 1] = q(mix(amb.g, cg, lit))
-                px[i + 2] = q(mix(amb.b, cb, lit))
+                px[i] = q(mix(amb.r, peak.r, lit))
+                px[i + 1] = q(mix(amb.g, peak.g, lit))
+                px[i + 2] = q(mix(amb.b, peak.b, lit))
                 px[i + 3] = 255
             }
         }
