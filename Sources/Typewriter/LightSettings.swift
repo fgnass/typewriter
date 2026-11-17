@@ -13,10 +13,10 @@ struct LightSettings: Equatable {
     var reach: Double
     /// Color temperature in Kelvin.
     var temperature: Double
-    /// Brightness of the paper outside the light.
+    /// Brightness of the cool light on the paper outside the lamp.
     var ambient: Double
 
-    static let defaults = LightSettings(spread: 100, softness: 0.35, brightness: 0.95, reach: 0.65, temperature: 3600, ambient: 0.88)
+    static let defaults = LightSettings(spread: 150, softness: 0.08, brightness: 1, reach: 0.77, temperature: 3600, ambient: 0.78)
 
     struct Parameter {
         let key: WritableKeyPath<LightSettings, Double>
@@ -61,7 +61,7 @@ struct LightSettings: Equatable {
         let b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * log(t - 10) - 305.0447927307)
         let c = [r, g, b].map { max(0, min(255, $0)) }
         let m = c.max() ?? 255
-        let tint = 0.3
+        let tint = 0.2
         func mixWhite(_ v: Double) -> Double { 1 - tint + tint * v / m }
         return (mixWhite(c[0]), mixWhite(c[1]), mixWhite(c[2]))
     }

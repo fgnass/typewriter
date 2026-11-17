@@ -61,7 +61,7 @@ struct Metrics {
         visibleCarriageWidth = min(180, max(140, size.width * 0.115))
         assetScale = visibleCarriageWidth / CGFloat((c.right - c.left) * c.width)
         bandHeight = min(85, max(65, (size.height * 0.085).rounded()))
-        grooveTopY = bandHeight - CGFloat((r.grooveTop - r.top) * r.height) * assetScale
+        grooveTopY = bandHeight * (1 - CGFloat((r.grooveTop - r.top) / (r.bottom - r.top)))
         carriageBottomY = bandHeight - 1
         carriageSize = CGSize(width: CGFloat(c.width) * assetScale, height: CGFloat(c.height) * assetScale)
         printOffset = CGPoint(x: CGFloat(c.printX) * carriageSize.width, y: CGFloat(1 - c.printY) * carriageSize.height)
@@ -98,7 +98,7 @@ struct Metrics {
 
 enum Palette {
     static let ink: CGFloat = 0.14
-    static var paperBackground: CGColor { CGColor(srgbRed: 0.84, green: 0.81, blue: 0.76, alpha: 1) }
+    static var paperBackground: CGColor { CGColor(srgbRed: 0.77, green: 0.78, blue: 0.84, alpha: 1) }
 }
 
 /// Draws the glyphs (and correction traces) of one line of paper.
@@ -438,15 +438,20 @@ final class PaperScene {
                 ctx.restoreGState()
             }
         }
-        // A lighter, less yellow sheet, so the warm light can still add warmth.
-        ctx.setFillColor(CGColor(srgbRed: 1, green: 0.99, blue: 0.985, alpha: 0.35))
+        // Keep only the fiber structure: a neutral white sheet, so the cool ambient light and the warm lamp
+        // give the paper its color.
+        ctx.setBlendMode(.saturation)
+        ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setBlendMode(.normal)
+        ctx.setFillColor(CGColor(gray: 1, alpha: 0.7))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
     }
 
-    /// The housing band: the top of the rail image (lip and guide groove) at the carriage scale,
-    /// stretched to the full width. The taller base comes from repeating the brushed surface below
-    /// the groove, not from stretching the guide.
+    /// The housing band: the whole rail band of the asset (lip, dark groove, brushed surface),
+    /// scaled evenly to the band height so it keeps the look of the asset, and stretched to the full width.
+    /// The surface is brushed horizontally, so the horizontal stretch does not show.
     private static func makeBandImage(variant v: HardwareVariant, metrics m: Metrics, scale: CGFloat) -> CGImage? {
         let r = v.railReg
         let rail = v.rail
@@ -455,19 +460,10 @@ final class PaperScene {
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.interpolationQuality = .high
-        let px = { (v: Double) in Int((v * r.height).rounded()) }
-        let top = px(r.top), bottom = px(r.bottom)
-        let split = px(r.grooveBottom + (r.bottom - r.grooveBottom) * 0.2)
-        let pxScale = m.assetScale * scale // device pixels per asset pixel
+        let top = Int((r.top * r.height).rounded()), bottom = Int((r.bottom * r.height).rounded())
         // Skip the transparent crop margin at both ends.
-        let x0 = 8, cw = rail.width - 16
-        guard let head = rail.cropping(to: CGRect(x: x0, y: top, width: cw, height: split - top)),
-              let body = rail.cropping(to: CGRect(x: x0, y: split, width: cw, height: bottom - 2 - split)) else { return nil }
-        let headH = CGFloat(head.height) * pxScale
-        ctx.draw(head, in: CGRect(x: 0, y: CGFloat(h) - headH, width: CGFloat(w), height: headH))
-        // Extend the brushed surface below the groove down to the bottom edge. Only this flat part
-        // is lengthened; the guide keeps its proportions.
-        ctx.draw(body, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h) - headH))
+        guard let band = rail.cropping(to: CGRect(x: 8, y: top, width: rail.width - 16, height: bottom - top + 1)) else { return nil }
+        ctx.draw(band, in: CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
     }
 
@@ -488,8 +484,8 @@ final class PaperScene {
         let reach = max(1, s.reach * paperH)
         let lc = s.color
         let amb = s.ambient
-        // The ambient light is slightly cooler than the lamp.
-        let ambient = (r: amb, g: amb * 0.99, b: amb * 0.985)
+        // The ambient light is cool lavender, the lamp is warm.
+        let ambient = (r: amb * 0.987, g: amb, b: min(1, amb * 1.077))
         func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
             let t = max(0, min(1, (x - e0) / (e1 - e0)))
             return t * t * (3 - 2 * t)
@@ -503,10 +499,12 @@ final class PaperScene {
                 var beam = 0.0
                 if v > 0 {
                     let angle = atan2(abs(u), v)
-                    beam = 1 - smooth(half - soft, half + soft * 0.5, angle)
+                    // The edge gets softer with distance, like a real penumbra.
+                    let edge = soft * min(1, 0.25 + d / (0.5 * paperH))
+                    beam = 1 - smooth(half - edge, half + edge, angle)
                 }
                 let falloff = exp(-(d / reach) * (d / reach))
-                let hot = 0.55 * exp(-d / 16) * smooth(-8, 2, v)
+                let hot = 0.35 * exp(-d / 16) * smooth(-8, 2, v)
                 let k = min(1, s.brightness * (beam * falloff + hot))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }

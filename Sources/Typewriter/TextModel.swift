@@ -74,13 +74,10 @@ final class TextModel {
         relayout()
     }
 
-    /// Removes the last character. Returns false when there is nothing to remove.
+    /// Removes the last character without a trace. Returns false when there is nothing to remove.
     @discardableResult
     func deleteBackward() -> Bool {
-        guard let last = chars.last else { return false }
-        if let pos = layout.positions.last ?? nil, !last.isWhitespace {
-            ghosts.append(Ghost(line: pos.line, col: pos.col, char: last, style: styles[styles.count - 1]))
-        }
+        guard !chars.isEmpty else { return false }
         chars.removeLast()
         styles.removeLast()
         relayout()
