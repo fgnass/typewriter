@@ -29,13 +29,23 @@ enum CarriageGeometry {
     static let rightLampEnd: CGFloat = 1545
 }
 
-/// Rows of the rail image (origin top left): polished lip, dark recessed groove, then the face,
-/// which starts with a fine highlight right below the groove.
+/// Rows of the rail band (origin top left). The band is built from the carriage material, so rail and carriage
+/// look exactly the same: the lip from the top edge of the carriage, the face from its front. Only the dark
+/// groove and the fine highlight below it come from the rail image.
 enum RailGeometry {
-    static let top: CGFloat = 309
-    static let grooveTop: CGFloat = 337
-    static let grooveBottom: CGFloat = 355
-    static let bottom: CGFloat = 413
+    static let top: CGFloat = 0
+    static let grooveTop: CGFloat = 60
+    static let grooveBottom: CGFloat = 78
+    static let bottom: CGFloat = 201
+
+    /// Source rows in the original carriage image (1774 × 887).
+    static let lipSourceRows = 492..<552        // top edge with its polished chamfer, on the foot
+    static let lipSourceColumns = 1385..<1540
+    static let faceSourceRows = 560..<680       // plain front of the body
+    static let faceSourceColumns = 300..<1100
+    /// Source rows in the rail image: the dark groove and the highlight right below it.
+    static let grooveSourceRows = 337..<355
+    static let highlightSourceRows = 355..<358
 }
 
 /// One hardware color. All colors share the same images; they are tinted from the rose gold originals.
@@ -101,17 +111,12 @@ enum Hardware {
               let lamp = image(dir.appendingPathComponent("lamp-overlay.png")),
               let status = image(dir.appendingPathComponent("status-overlay.png")),
               let hole = image(dir.appendingPathComponent("grille-hole.png")) else { return nil }
-        let railBand = rail.cropping(to: CGRect(x: 0, y: RailGeometry.top, width: CGFloat(rail.width),
-                                                height: RailGeometry.bottom - RailGeometry.top)) ?? rail
-        // Rose gold: the carriage image is a little more yellow than the rail, so it is tinted to the rail's hue.
+        // Rose gold: the carriage image is a little more yellow than the rose gold housing, so it is tinted to that hue.
         let tintedCarriage = tint(carriage, to: entry.color ?? railRoseGold) ?? carriage
-        let tintedRail = entry.color.map { tint(railBand, to: $0) ?? railBand } ?? railBand
-        // The carriage stands in front of the rail and gets the most light; the rail lies behind it and is darker.
-        // Both are neutral, so they keep the hue of every color.
-        let shaded = tintedCarriage
+        let railBand = makeRail(from: tintedCarriage, groove: rail) ?? rail
         let v = HardwareVariant(id: id, title: entry.title,
-                                carriage: extend(shaded) ?? shaded,
-                                rail: multiply(tintedRail, by: (0.9, 0.9, 0.9)) ?? tintedRail,
+                                carriage: extend(tintedCarriage) ?? tintedCarriage,
+                                rail: railBand,
                                 lamp: extend(lamp) ?? lamp, status: extend(status) ?? status, grilleHole: hole)
         cache[id] = v
         return v
@@ -151,6 +156,89 @@ enum Hardware {
             px[i + 2] = UInt8(max(0, min(255, out.2 * a * 255)))
         }
         return ctx.makeImage()
+    }
+
+    /// Builds the rail band from the carriage material. Each part uses the mean color of its source rows,
+    /// so horizontal light falloff in the source does not repeat; the fine grain of the metal comes back as a
+    /// mirrored texture taken from the front of the carriage.
+    private static func makeRail(from carriage: CGImage, groove railImage: CGImage) -> CGImage? {
+        typealias R = RailGeometry
+        guard let c = pixels(carriage), let r = pixels(railImage) else { return nil }
+        let width = 1200, height = Int(R.bottom)
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        // Mean color (premultiplied RGBA) of one row segment.
+        func rowMean(_ p: Pixels, _ y: Int, _ cols: Range<Int>) -> [Double] {
+            var sum = [0.0, 0, 0, 0]
+            for x in cols { for k in 0..<4 { sum[k] += Double(p.data[(y * p.width + x) * 4 + k]) } }
+            return sum.map { $0 / Double(cols.count) }
+        }
+        // Grain: pixel brightness relative to its row mean, from the plain front of the carriage.
+        let gx = R.faceSourceColumns, gy = R.faceSourceRows
+        var grain = [Double](repeating: 1, count: gx.count * gy.count)
+        for (j, y) in gy.enumerated() {
+            let mean = rowMean(c, y, gx)
+            let m = (mean[0] + mean[1] + mean[2]) / 3
+            for (i, x) in gx.enumerated() {
+                let o = (y * c.width + x) * 4
+                let v = (Double(c.data[o]) + Double(c.data[o + 1]) + Double(c.data[o + 2])) / 3
+                grain[j * gx.count + i] = m > 0 ? v / m : 1
+            }
+        }
+        func grainAt(_ x: Int, _ y: Int) -> Double {
+            let w = gx.count, h = gy.count
+            let px = (x / w) % 2 == 0 ? x % w : w - 1 - x % w
+            let py = (y / h) % 2 == 0 ? y % h : h - 1 - y % h
+            return grain[py * w + px]
+        }
+        func fill(_ y: Int, with mean: [Double], grainy: Bool) {
+            for x in 0..<width {
+                let f = grainy ? grainAt(x, y) : 1
+                let o = (y * width + x) * 4
+                for k in 0..<3 { out[o + k] = UInt8(max(0, min(mean[3], mean[k] * f))) }
+                out[o + 3] = UInt8(mean[3])
+            }
+        }
+        // Lip: rows from the top edge of the carriage.
+        for (i, y) in R.lipSourceRows.enumerated() where i < Int(R.grooveTop) {
+            fill(i, with: rowMean(c, y, R.lipSourceColumns), grainy: true)
+        }
+        // Groove and the highlight below it, from the rail image.
+        let railCols = 100..<min(r.width - 100, 1900)
+        for (i, y) in R.grooveSourceRows.enumerated() {
+            fill(Int(R.grooveTop) + i, with: rowMean(r, y, railCols), grainy: false)
+        }
+        let faceStart = Int(R.grooveBottom)
+        for (i, y) in R.highlightSourceRows.enumerated() {
+            fill(faceStart + i, with: rowMean(r, y, railCols), grainy: false)
+        }
+        // Face: the plain front of the carriage, its rows stretched over the face height.
+        let faceRows = height - faceStart - R.highlightSourceRows.count
+        for i in 0..<faceRows {
+            let src = R.faceSourceRows.lowerBound + i * R.faceSourceRows.count / faceRows
+            fill(faceStart + R.highlightSourceRows.count + i, with: rowMean(c, src, R.faceSourceColumns), grainy: true)
+        }
+        return makeImage(&out, width, height)
+    }
+
+    private struct Pixels {
+        let data: [UInt8]
+        let width: Int
+    }
+
+    private static func pixels(_ image: CGImage) -> Pixels? {
+        let w = image.width, h = image.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return Pixels(data: px, width: w)
+    }
+
+    private static func makeImage(_ px: inout [UInt8], _ w: Int, _ h: Int) -> CGImage? {
+        CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
     }
 
     /// Makes the body taller: the rows above the slice stay, the slice is stretched, the rows below move down.
