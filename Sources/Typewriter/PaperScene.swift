@@ -17,6 +17,8 @@ struct Metrics {
 
     /// Points per pixel of the hardware images.
     let assetScale: CGFloat
+    /// Points per pixel of the rail image. The rail is drawn larger than the carriage image scale.
+    let railScale: CGFloat
     /// Height of the rail band at the bottom of the screen.
     let bandHeight: CGFloat
     /// Top of the dark guide groove in the rail.
@@ -64,19 +66,22 @@ struct Metrics {
         // The fin covers exactly one character cell; everything else follows from that scale.
         assetScale = (charWidth + 2) / (C.finRight - C.finLeft)
         let s = assetScale
-        bandHeight = ((R.bottom - R.top) * s).rounded()
-        grooveTopY = bandHeight - (R.grooveTop - R.top) * s
-        // The carriage stands on the rail; its lower edge reaches down to the groove.
-        carriageBottomY = bandHeight - (R.grooveBottom - R.top) * s
-        printY = carriageBottomY + (C.bodyBottom - C.bodyTop) * s
+        // The carriage stands in front of the rail: its lower edge reaches down to the bottom of the groove,
+        // and the top of the rail lip meets the body a little above its middle.
+        let bodyHeight = (C.bodyBottom - C.bodyTop) * s
+        railScale = bodyHeight * 0.58 / (R.grooveBottom - R.top)
+        bandHeight = ((R.bottom - R.top) * railScale).rounded()
+        grooveTopY = bandHeight - (R.grooveTop - R.top) * railScale
+        carriageBottomY = bandHeight - (R.grooveBottom - R.top) * railScale
+        printY = carriageBottomY + bodyHeight
         carriageFrame = CGRect(x: -C.finCenter * s, y: -(C.canvas.height - C.bodyTop) * s,
                                width: C.canvas.width * s, height: C.canvas.height * s)
         carriageWidth = (C.bodyRight - C.bodyLeft) * s
         carriageCenterOffset = ((C.bodyLeft + C.bodyRight) / 2 - C.finCenter) * s
         lampOffsetX = ((C.lampStart.x + C.lampEnd.x) / 2 - C.finCenter) * s
         lampHalfLength = (C.lampEnd.x - C.lampStart.x) / 2 * s
-        // The current line sits right above the body; descenders keep a small gap.
-        baselineY = (printY + descent + 3).rounded()
+        // The current line sits above the body with some air below the descenders.
+        baselineY = (printY + descent + charWidth * 0.8).rounded()
         baseline = (lineHeight * 0.32).rounded()
         typingY = baselineY - baseline
     }
@@ -265,6 +270,7 @@ final class PaperScene {
     private let lampBloom = CAGradientLayer()
     private let lampLayer = CALayer()
     private let statusLayer = CALayer()
+    private var lampStrip: CALayer?
     /// Short heat pulse of the ceramic print head when it prints or erases.
     private let heatPulse = CAGradientLayer()
     /// Cells whose glyph is still developing or fading, per line.
@@ -377,7 +383,30 @@ final class PaperScene {
         lampLayer.contents = variant.lamp
         lampLayer.contentsGravity = .resize
         lampLayer.frame = m.carriageFrame
+        // A soft bloom around the strip, so the lamp reads as bright light and not as a thin line.
+        lampLayer.shadowColor = CGColor(srgbRed: 1, green: 0.82, blue: 0.55, alpha: 1)
+        lampLayer.shadowOpacity = 1
+        lampLayer.shadowRadius = 5
+        lampLayer.shadowOffset = CGSize(width: 0, height: 1.5)
         head.addSublayer(lampLayer)
+        // The glowing edge of the lamp strip along the top of the body.
+        let strip = CAGradientLayer()
+        let warmWhite = CGColor(srgbRed: 1, green: 0.97, blue: 0.9, alpha: 1)
+        strip.colors = [CGColor(srgbRed: 1, green: 0.95, blue: 0.84, alpha: 0), warmWhite, warmWhite,
+                        CGColor(srgbRed: 1, green: 0.95, blue: 0.84, alpha: 0)]
+        strip.locations = [0, 0.04, 0.96, 1]
+        strip.startPoint = CGPoint(x: 0, y: 0.5)
+        strip.endPoint = CGPoint(x: 1, y: 0.5)
+        let s = m.assetScale
+        strip.frame = CGRect(x: CarriageGeometry.lampStart.x * s,
+                             y: (CarriageGeometry.canvas.height - CarriageGeometry.bodyTop) * s - 1.6,
+                             width: (CarriageGeometry.lampEnd.x - CarriageGeometry.lampStart.x) * s, height: 1.8)
+        strip.shadowColor = CGColor(srgbRed: 1, green: 0.66, blue: 0.32, alpha: 1)
+        strip.shadowOpacity = 1
+        strip.shadowRadius = 7
+        strip.shadowOffset = CGSize(width: 0, height: 3)
+        lampLayer.addSublayer(strip)
+        lampStrip = strip
         statusLayer.contents = variant.status
         statusLayer.contentsGravity = .resize
         statusLayer.frame = m.carriageFrame
@@ -394,11 +423,11 @@ final class PaperScene {
         let s = m.assetScale
         let host = CALayer()
         host.frame = m.carriageFrame
-        let pitch: CGFloat = 2.6, hole: CGFloat = 1.3
+        let pitch: CGFloat = 1.75, hole: CGFloat = 0.95
         let left = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.09) * s
         let right = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.38) * s
         let midY = (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s - 0.5
-        let rows = 4
+        let rows = 5
         let cols = Int((right - left) / pitch)
         for row in 0..<rows {
             for col in 0..<cols {
@@ -432,7 +461,7 @@ final class PaperScene {
     private func setupBandLight() {
         let m = metrics
         typealias R = RailGeometry
-        func bandY(_ v: CGFloat) -> CGFloat { m.bandHeight - (v - R.top) * m.assetScale }
+        func bandY(_ v: CGFloat) -> CGFloat { m.bandHeight - (v - R.top) * m.railScale }
         let lipY = bandY((R.top + R.grooveTop) / 2)
         let lipHeight = max(2, bandY(R.top) - bandY(R.grooveTop))
         let grooveBottomY = bandY(R.grooveBottom)
@@ -767,6 +796,8 @@ final class PaperScene {
         // The lamp is a strip along the top edge of the body. A virtual apex below the strip makes the beam
         // as wide as the strip where it leaves the body. Below the top edge of the body there is no light.
         let depth = Double(m.lampHalfLength) / max(0.2, tan(half))
+        let halfStrip = Double(m.lampHalfLength)
+        let glowReach = Double(m.charWidth) * 2.5
         let apexY = Double(m.printY - m.bandHeight) - depth
         let soft = max(0.01, s.softness * half)
         let reach = max(1, s.reach * paperH)
@@ -807,12 +838,17 @@ final class PaperScene {
                 // A focused pool of light on the freshly printed character, one cell left of the element.
                 let pu = pu0 + cw, pv = v - poolY
                 let pool = 0.55 * exp(-(pu * pu) / (2 * poolW * poolW) - (pv * pv) / (2 * poolH * poolH))
-                let k = min(1, s.brightness * (beam * falloff + pool))
+                // The paper right above the lamp strip glows warm.
+                let su = max(0, abs(pu0 - lampX) - halfStrip), sv = v - depth
+                let stripGlow = sv > -1 ? exp(-(su * su + sv * sv).squareRoot() / glowReach) * smooth(-1, 1, sv) : 0
+                let k = min(1, s.brightness * (beam * falloff + pool + stripGlow))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
-                px[i] = q(mix(ambient.r, lc.r, k))
-                px[i + 1] = q(mix(ambient.g, lc.g, k))
-                px[i + 2] = q(mix(ambient.b, lc.b, k))
+                // Close to the lamp the light is warmer and more saturated.
+                let hot = min(1, stripGlow * s.brightness)
+                px[i] = q(mix(mix(ambient.r, lc.r, k), 1.0, hot))
+                px[i + 1] = q(mix(mix(ambient.g, lc.g, k), 0.84, hot))
+                px[i + 2] = q(mix(mix(ambient.b, lc.b, k), 0.68, hot))
                 px[i + 3] = 255
             }
         }
