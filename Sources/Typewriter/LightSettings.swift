@@ -18,7 +18,7 @@ struct LightSettings: Equatable {
     /// Tilt of the beam in degrees. Negative values lean toward the written text on the left.
     var tilt: Double
 
-    static let defaults = LightSettings(spread: 90, softness: 0.25, brightness: 1, reach: 1.1, temperature: 3600, ambient: 0.75, tilt: -50)
+    static let defaults = LightSettings(spread: 70, softness: 0.25, brightness: 1, reach: 1.1, temperature: 3600, ambient: 0.75, tilt: -25)
 
     struct Parameter {
         let key: WritableKeyPath<LightSettings, Double>
