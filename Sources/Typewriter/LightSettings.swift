@@ -15,7 +15,7 @@ struct LightSettings: Equatable {
     var temperature: Double
     /// Brightness of the cool light on the paper outside the lamp.
     var ambient: Double
-    /// Tilt of the beam in degrees. Negative values lean toward the written text on the left.
+    /// Tilt of the beam in degrees. Fixed at 0: the beam is symmetric.
     var tilt: Double
 
     static let defaults = LightSettings(spread: 120, softness: 0.25, brightness: 1, reach: 1.1, temperature: 3600, ambient: 0.75, tilt: 0)
@@ -34,7 +34,6 @@ struct LightSettings: Equatable {
         Parameter(key: \.reach, title: "Reach", range: 0.15...1.5, format: { "\(Int($0 * 100)) %" }),
         Parameter(key: \.temperature, title: "Color Temperature", range: 2000...6500, format: { "\(Int($0)) K" }),
         Parameter(key: \.ambient, title: "Ambient Light", range: 0.5...1, format: { "\(Int($0 * 100)) %" }),
-        Parameter(key: \.tilt, title: "Tilt", range: -60...60, format: { "\(Int($0))°" }),
     ]
 
     static let didChange = Notification.Name("LightSettingsDidChange")

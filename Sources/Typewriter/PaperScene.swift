@@ -941,9 +941,10 @@ final class PaperScene {
                 let k = min(1, s.brightness * beam * falloff)
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
-                px[i] = q(mix(ambient.r, lc.r, k))
-                px[i + 1] = q(mix(ambient.g, lc.g, k))
-                px[i + 2] = q(mix(ambient.b, lc.b, k))
+                // Light only adds: no channel may get darker than in the ambient light alone.
+                px[i] = q(max(ambient.r, mix(ambient.r, lc.r, k)))
+                px[i + 1] = q(max(ambient.g, mix(ambient.g, lc.g, k)))
+                px[i + 2] = q(max(ambient.b, mix(ambient.b, lc.b, k)))
                 px[i + 3] = 255
             }
         }
