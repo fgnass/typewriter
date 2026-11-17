@@ -122,7 +122,7 @@ enum Hardware {
     /// Mean color of the rose gold metal, the reference for tinting.
     private static let roseGold = (r: 0.86, g: 0.72, b: 0.64)
     /// Mean color of the rose gold rail, measured on its lip and face.
-    private static let railRoseGold = (r: 0.875, g: 0.698, b: 0.638)
+    private static let railRoseGold = (r: 0.875, g: 0.678, b: 0.632)
 
     /// Recolors the rose gold metal to another hardware color and keeps the shading:
     /// darker pixels scale the target color down, brighter pixels blend it toward white.
