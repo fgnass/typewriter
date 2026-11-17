@@ -902,13 +902,16 @@ final class PaperScene {
         let halfStrip = Double(m.lampHalfLength)
         let apexY = Double(m.printY - m.bandHeight)
         let soft = max(0.01, s.softness * half)
-        let reach = max(1, s.reach * paperH)
+        // Distance at which the light has dropped to half (inverse square law, softened near the lamp).
+        let reach = max(1, s.reach * 0.3 * paperH)
         let tilt = s.tilt * .pi / 180
         let axis = (x: sin(tilt), y: cos(tilt))
         // The lamp sits in the body, left of the print point.
         let lampX = Double(m.lampOffsetX)
         // A rosy, peach-colored light, as measured in the approved design.
-        let lc = (r: s.color.r, g: s.color.g * 0.985, b: min(1, s.color.b * 1.04))
+        // Strong light looks almost white-warm, weak light deeper and more orange.
+        let hotColor = s.color(saturation: 0.3)
+        let deepColor = s.color(saturation: 0.9)
         let amb = s.ambient
         // The ambient light is cool lavender, the lamp is warm.
         let ambient = (r: amb, g: amb * 0.96, b: min(1, amb * 1.06))
@@ -934,11 +937,17 @@ final class PaperScene {
                     // The edge gets softer with distance, like a real penumbra. It is never narrower
                     // than about 2 pt, so it never shows the pixel grid.
                     let edge = max(soft * min(1, 0.25 + d / (0.5 * paperH)), 2 / max(d, 1))
-                    return ((1 - smooth(half - edge, half + edge, angle)) * smooth(depth - 1.5, depth + 1.5, v), d)
+                    // Brightest on the axis, softly darker toward the edge of the beam.
+                    let axisFalloff = pow(max(0, cos(min(angle / (half + edge), 1) * .pi / 2)), 0.6)
+                    return ((1 - smooth(half - edge, half + edge, angle)) * axisFalloff * smooth(depth - 1.5, depth + 1.5, v), d)
                 }
                 let (beam, d) = segmentBeam(lampX, halfStrip)
-                let falloff = exp(-(d / reach) * (d / reach))
-                let k = min(1, s.brightness * beam * falloff)
+                let falloff = 1 / (1 + (d / reach) * (d / reach))
+                // Exposure: the light saturates softly instead of being cut off.
+                let k = 1 - exp(-2.4 * s.brightness * beam * falloff)
+                let heat = k * k
+                let lc = (r: mix(deepColor.r, hotColor.r, heat), g: mix(deepColor.g, hotColor.g, heat),
+                          b: mix(deepColor.b, hotColor.b, heat))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
                 // Light only adds: no channel may get darker than in the ambient light alone.

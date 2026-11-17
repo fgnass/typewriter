@@ -56,14 +56,16 @@ struct LightSettings: Equatable {
 
     /// Light color for the temperature, normalized so that the brightest channel is 1.
     /// Mixed with white, so the light stays an ivory tint and does not become a yellow filter.
-    var color: (r: Double, g: Double, b: Double) {
+    var color: (r: Double, g: Double, b: Double) { color(saturation: 0.55) }
+
+    /// The light color for the temperature, mixed with white: 0 is white, 1 is the full color of the temperature.
+    func color(saturation tint: Double) -> (r: Double, g: Double, b: Double) {
         let t = temperature / 100
         let r = t <= 66 ? 255 : 329.698727446 * pow(t - 60, -0.1332047592)
         let g = t <= 66 ? 99.4708025861 * log(t) - 161.1195681661 : 288.1221695283 * pow(t - 60, -0.0755148492)
         let b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * log(t - 10) - 305.0447927307)
         let c = [r, g, b].map { max(0, min(255, $0)) }
         let m = c.max() ?? 255
-        let tint = 0.55
         func mixWhite(_ v: Double) -> Double { 1 - tint + tint * v / m }
         return (mixWhite(c[0]), mixWhite(c[1]), mixWhite(c[2]))
     }
