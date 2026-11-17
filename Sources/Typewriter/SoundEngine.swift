@@ -6,6 +6,20 @@ final class SoundEngine {
         case key, space, carriageReturn = "return", bell, backspace, feed, hum
     }
 
+    enum Style: String, CaseIterable {
+        case thermal, electric
+        var title: String { self == .thermal ? "Thermal (1980s electronic)" : "Electric (recorded)" }
+    }
+
+    /// The sound style. Changing it reloads the sounds.
+    var style: Style {
+        get { Style(rawValue: UserDefaults.standard.string(forKey: "soundStyle") ?? "") ?? .thermal }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "soundStyle")
+            loadSamples()
+        }
+    }
+
     var enabled: Bool {
         get { UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "soundEnabled") }
@@ -34,6 +48,17 @@ final class SoundEngine {
         engine.connect(humPlayer, to: engine.mainMixerNode, format: format)
         loadSamples()
         engine.prepare()
+    }
+
+    /// Debug aid: writes every loaded sound as a WAV file into the directory.
+    func export(to dir: URL) {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for (kind, list) in buffers {
+            for (i, b) in list.enumerated() {
+                let url = dir.appendingPathComponent("\(kind.rawValue)\(i + 1).wav")
+                if let f = try? AVAudioFile(forWriting: url, settings: b.format.settings) { try? f.write(from: b) }
+            }
+        }
     }
 
     func start() {
@@ -76,7 +101,9 @@ final class SoundEngine {
         nextVoice = (nextVoice + 1) % voices.count
         voice.player.stop()
         let pitchy = kind == .key || kind == .space || kind == .backspace
-        voice.speed.rate = pitchy ? Float.random(in: 0.96...1.04) : Float.random(in: 0.99...1.01)
+        // Motors keep their pitch; only recorded strikes vary more.
+        let spread: Float = style == .thermal ? 0.015 : 0.04
+        voice.speed.rate = pitchy ? Float.random(in: (1 - spread)...(1 + spread)) : Float.random(in: 0.99...1.01)
         voice.player.volume = volume * (volumeScale[kind] ?? 1) * (pitchy ? Float.random(in: 0.75...1.0) : 1)
         voice.player.scheduleBuffer(list[idx], at: nil)
         voice.player.play()
@@ -85,6 +112,13 @@ final class SoundEngine {
     // MARK: Loading
 
     private func loadSamples() {
+        buffers = [:]
+        volumeScale = [:]
+        lastVariant = [:]
+        if style == .thermal {
+            for kind in Kind.allCases { buffers[kind] = ThermalSynth.make(kind, format: format) }
+            return
+        }
         let dir = Bundle.main.resourceURL?.appendingPathComponent("Sounds")
         let files = (dir.flatMap { try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil) }) ?? []
         for kind in Kind.allCases {

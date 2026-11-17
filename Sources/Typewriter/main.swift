@@ -8,11 +8,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotKey: HotKey?
     private let recentMenu = NSMenu()
     private let colorMenu = NSMenu()
+    private let styleMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ⌘^ : keycode 10 is the key left of "1" on ISO keyboards (German "^").
         hotKey = HotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey)) { [weak self] in
             self?.overlay.toggle()
+        }
+        if let dir = ProcessInfo.processInfo.environment["TYPEWRITER_EXPORT_SOUNDS"] {
+            sounds.export(to: URL(fileURLWithPath: dir))
+            exit(0)
         }
         setupMenu()
         if !Inserter.isTrusted { Inserter.requestTrust() }
@@ -35,6 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sound.target = self
         sound.tag = 1
         menu.addItem(sound)
+        let styleItem = NSMenuItem(title: "Sound Style", action: nil, keyEquivalent: "")
+        styleItem.submenu = styleMenu
+        styleItem.indentationLevel = 1
+        menu.addItem(styleItem)
         if sounds.hasHum {
             let hum = NSMenuItem(title: "Motor Hum", action: #selector(toggleHum), keyEquivalent: "")
             hum.target = self
@@ -69,6 +78,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.item(withTag: 1)?.state = sounds.enabled ? .on : .off
         menu.item(withTag: 3)?.state = sounds.humEnabled ? .on : .off
         if Inserter.isTrusted, let ax = menu.item(withTag: 2) { menu.removeItem(ax) }
+        styleMenu.removeAllItems()
+        for (i, st) in SoundEngine.Style.allCases.enumerated() {
+            let item = NSMenuItem(title: st.title, action: #selector(selectStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = i
+            item.state = st == sounds.style ? .on : .off
+            styleMenu.addItem(item)
+        }
         colorMenu.removeAllItems()
         for (i, c) in Hardware.ids.enumerated() {
             if i == 7 { colorMenu.addItem(.separator()) } // MacBook colors first, then MacBook Neo colors.
@@ -95,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openTypewriter() { overlay.show() }
     @objc private func selectColor(_ sender: NSMenuItem) { Hardware.currentID = Hardware.ids[sender.tag].id }
     @objc private func showLight() { LightPanel.shared.toggle() }
+    @objc private func selectStyle(_ sender: NSMenuItem) { sounds.style = SoundEngine.Style.allCases[sender.tag] }
     @objc private func toggleSound() { sounds.enabled.toggle() }
     @objc private func toggleHum() { sounds.humEnabled.toggle() }
     @objc private func showHistory() { NSWorkspace.shared.open(History.directory) }

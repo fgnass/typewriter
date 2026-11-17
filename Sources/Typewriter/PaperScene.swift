@@ -107,6 +107,8 @@ final class LineLayer: CALayer {
     var glyphs: [PlacedGlyph] = []
     var ghosts: [Ghost] = []
     var signature = 0
+    /// Columns that are not drawn here, because a glyph layer is animating them.
+    var hiddenCols: Set<Int> = []
 
     private static var lineCache: [Character: CTLine] = [:]
     private static var cachedFont: CTFont?
@@ -142,7 +144,7 @@ final class LineLayer: CALayer {
             ctx.fill(rect)
             draw(g.char, x: x, y: y0, alpha: 0.07, in: ctx)
         }
-        for g in glyphs where !g.char.isWhitespace {
+        for g in glyphs where !g.char.isWhitespace && !hiddenCols.contains(g.col) {
             draw(g.char, x: x0 + CGFloat(g.col) * m.charWidth, y: y0, alpha: 1, in: ctx)
         }
     }
@@ -151,6 +153,27 @@ final class LineLayer: CALayer {
         ctx.setFillColor(CGColor(gray: Palette.ink, alpha: alpha))
         ctx.textPosition = CGPoint(x: x, y: y)
         CTLineDraw(ctLine(for: c), ctx)
+    }
+}
+
+/// One glyph, drawn exactly like the glyphs of a line, for print and erase animations.
+final class GlyphLayer: CALayer {
+    var char: Character = " "
+    var color = CGColor(gray: 0, alpha: 1)
+    var metrics: Metrics!
+
+    override func action(forKey event: String) -> CAAction? { event == "contents" ? NSNull() : super.action(forKey: event) }
+
+    override func draw(in ctx: CGContext) {
+        guard let m = metrics else { return }
+        ctx.textMatrix = .identity
+        let attrs: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): m.font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
+        ]
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: String(char), attributes: attrs))
+        ctx.textPosition = CGPoint(x: 0, y: m.baseline)
+        CTLineDraw(line, ctx)
     }
 }
 
@@ -179,6 +202,12 @@ final class PaperScene {
     private let lipHighlight = CAGradientLayer()
     private let grooveHighlight = CAGradientLayer()
     private let lampBloom = CAGradientLayer()
+    /// Short heat pulse of the ceramic print head when it prints or erases.
+    private let heatPulse = CAGradientLayer()
+    /// Cells whose glyph is still developing or fading, per line.
+    private var animatingCells: [Int: Set<Int>] = [:]
+    private var lastLayout: Layout?
+    private var lastGhosts: [Ghost] = []
     private let scale: CGFloat
     private var lineLayers: [Int: LineLayer] = [:]
     private var lastCaretLine = 0
@@ -306,6 +335,15 @@ final class PaperScene {
         lampBloom.position = CGPoint(x: 0, y: 1)
         head.addSublayer(lampBloom)
 
+        radial(heatPulse, width: m.ceramicWidth * 1.6, height: m.ceramicWidth * 0.7)
+        heatPulse.position = CGPoint(x: 0, y: -1)
+        heatPulse.opacity = 0
+        heatPulse.colors = [CGColor(srgbRed: 1, green: 0.93, blue: 0.8, alpha: 1),
+                            CGColor(srgbRed: 1, green: 0.62, blue: 0.3, alpha: 0.45),
+                            CGColor(srgbRed: 1, green: 0.5, blue: 0.2, alpha: 0)]
+        heatPulse.locations = [0, 0.4, 1]
+        head.addSublayer(heatPulse)
+
         root.addSublayer(head)
     }
 
@@ -412,6 +450,13 @@ final class PaperScene {
     }
 
     func update(layout: Layout, ghosts allGhosts: [Ghost], animated: Bool) {
+        lastLayout = layout
+        lastGhosts = allGhosts
+        updateLines(layout: layout, ghosts: allGhosts)
+        moveHead(layout: layout, animated: animated)
+    }
+
+    private func updateLines(layout: Layout, ghosts allGhosts: [Ghost]) {
         let m = metrics
         let caretLine = layout.caretLine
         let visibleLines = Int((m.size.height - m.typingY) / m.lineHeight) + 2
@@ -433,6 +478,8 @@ final class PaperScene {
             var h = Hasher()
             h.combine(glyphs)
             h.combine(ghosts)
+            let hidden = animatingCells[i] ?? []
+            h.combine(hidden)
             let sig = h.finalize()
             let l: LineLayer
             if let existing = lineLayers[i] {
@@ -450,6 +497,7 @@ final class PaperScene {
             l.position = CGPoint(x: 0, y: -CGFloat(i) * m.lineHeight)
             if l.signature != sig {
                 l.glyphs = glyphs
+                l.hiddenCols = hidden
                 l.ghosts = ghosts
                 l.signature = sig
                 l.setNeedsDisplay()
@@ -457,7 +505,11 @@ final class PaperScene {
         }
         markedLayer.position = CGPoint(x: m.cellX(col: layout.caretCol), y: m.typingY)
         CATransaction.commit()
+    }
 
+    private func moveHead(layout: Layout, animated: Bool) {
+        let m = metrics
+        let caretLine = layout.caretLine
         let lineChanged = caretLine != lastCaretLine
         let x = m.printX(caretCol: layout.caretCol)
         let instant = !animated || reduceMotion
@@ -471,6 +523,108 @@ final class PaperScene {
              duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
 
         lastCaretLine = caretLine
+    }
+
+    // MARK: Thermal printing
+
+    /// The ceramic head heats up for a moment.
+    private func pulseHeat(strength: Float) {
+        let a = CAKeyframeAnimation(keyPath: "opacity")
+        a.values = [0, strength, strength * 0.35, 0]
+        a.keyTimes = [0, 0.15, 0.45, 1]
+        a.duration = 0.26
+        heatPulse.add(a, forKey: "pulse")
+    }
+
+    private func glyphLayer(_ c: Character, color: CGColor) -> GlyphLayer {
+        let m = metrics
+        let l = GlyphLayer()
+        l.char = c
+        l.color = color
+        l.metrics = m
+        l.contentsScale = scale
+        l.frame = CGRect(x: 0, y: 0, width: m.charWidth * 1.5, height: m.lineHeight)
+        l.setNeedsDisplay()
+        return l
+    }
+
+    /// The new glyph develops like thermal paper: a soft warm brown first, then sharp and dark.
+    func printGlyph(_ c: Character, line: Int, col: Int) {
+        guard !c.isWhitespace else { return }
+        pulseHeat(strength: 0.9)
+        guard !reduceMotion else { return }
+        animateCell(line: line, col: col, duration: 0.2) { host in
+            let warm = self.glyphLayer(c, color: CGColor(srgbRed: 0.5, green: 0.32, blue: 0.2, alpha: 1))
+            let ink = self.glyphLayer(c, color: CGColor(gray: Palette.ink, alpha: 1))
+            host.addSublayer(warm)
+            host.addSublayer(ink)
+            let w = CAKeyframeAnimation(keyPath: "opacity")
+            w.values = [0, 0.75, 0]
+            w.keyTimes = [0, 0.35, 1]
+            w.duration = 0.2
+            warm.add(w, forKey: "develop")
+            warm.opacity = 0
+            let i = CABasicAnimation(keyPath: "opacity")
+            i.fromValue = 0
+            i.toValue = 1
+            i.beginTime = CACurrentMediaTime() + 0.03
+            i.duration = 0.17
+            i.fillMode = .backwards
+            i.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            ink.add(i, forKey: "develop")
+        }
+    }
+
+    /// A deleted glyph fades out while the head heats up again.
+    func eraseGlyph(_ c: Character, line: Int, col: Int) {
+        guard !c.isWhitespace else { return }
+        pulseHeat(strength: 0.6)
+        guard !reduceMotion else { return }
+        animateCell(line: line, col: col, duration: 0.16, keepHidden: false) { host in
+            let ink = self.glyphLayer(c, color: CGColor(gray: Palette.ink, alpha: 1))
+            host.addSublayer(ink)
+            let a = CABasicAnimation(keyPath: "opacity")
+            a.fromValue = 1
+            a.toValue = 0
+            a.duration = 0.16
+            ink.add(a, forKey: "erase")
+            ink.opacity = 0
+        }
+    }
+
+    /// Runs an animation in one character cell. While it runs, the line layer does not draw that cell.
+    private func animateCell(line: Int, col: Int, duration: CFTimeInterval, keepHidden: Bool = true, _ build: (CALayer) -> Void) {
+        guard let lineLayer = lineLayers[line] else { return }
+        let m = metrics
+        let host = CALayer()
+        host.anchorPoint = .zero
+        host.bounds = CGRect(x: 0, y: 0, width: m.charWidth * 1.5, height: m.lineHeight)
+        host.position = CGPoint(x: m.linePadding + CGFloat(col) * m.charWidth, y: 0)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        lineLayer.addSublayer(host)
+        build(host)
+        CATransaction.commit()
+        if keepHidden {
+            animatingCells[line, default: []].insert(col)
+            refreshLines()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            guard let self else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if keepHidden {
+                self.animatingCells[line]?.remove(col)
+                self.refreshLines()
+            }
+            host.removeFromSuperlayer()
+            CATransaction.commit()
+        }
+    }
+
+    private func refreshLines() {
+        guard let layout = lastLayout else { return }
+        updateLines(layout: layout, ghosts: lastGhosts)
     }
 
     // MARK: Images
