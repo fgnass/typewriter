@@ -11,19 +11,24 @@ protocol TypewriterViewDelegate: AnyObject {
 final class TypewriterView: NSView, NSTextInputClient {
     weak var delegate: TypewriterViewDelegate?
     let model: TextModel
-    let metrics: Metrics
+    private(set) var metrics: Metrics
     let sounds: SoundEngine
-    private let scene: PaperScene
+    private var scene: PaperScene
+    private let scale: CGFloat
+    private var hint: String
+    private var lightObserver: NSObjectProtocol?
 
     private var marked: String = ""
     private var bellRungOnLine = -1
     private var escArmedUntil: Date?
 
-    init(frame: CGRect, model: TextModel, metrics: Metrics, sounds: SoundEngine, scale: CGFloat, hint: String) {
+    init(frame: CGRect, model: TextModel, variant: HardwareVariant, sounds: SoundEngine, scale: CGFloat, hint: String) {
         self.model = model
-        self.metrics = metrics
         self.sounds = sounds
-        scene = PaperScene(metrics: metrics, scale: scale)
+        self.scale = scale
+        self.hint = hint
+        metrics = Metrics(size: frame.size, variant: variant)
+        scene = PaperScene(metrics: metrics, variant: variant, scale: scale)
         super.init(frame: frame)
         layer = CALayer()
         wantsLayer = true
@@ -31,6 +36,9 @@ final class TypewriterView: NSView, NSTextInputClient {
         layer?.addSublayer(scene.root)
         scene.setHint(hint)
         scene.update(layout: model.layout, ghosts: model.ghosts, animated: false)
+        lightObserver = NotificationCenter.default.addObserver(forName: LightSettings.didChange, object: nil, queue: .main) { [weak self] _ in
+            self?.scene.updateLight(LightSettings.current)
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             CATransaction.begin()
@@ -41,6 +49,24 @@ final class TypewriterView: NSView, NSTextInputClient {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let lightObserver { NotificationCenter.default.removeObserver(lightObserver) }
+    }
+
+    /// Builds the scene again for another hardware variant. The text stays.
+    private func reloadScene(variant: HardwareVariant) {
+        let old = scene
+        metrics = Metrics(size: bounds.size, variant: variant)
+        scene = PaperScene(metrics: metrics, variant: variant, scale: scale)
+        scene.setHint(hint)
+        scene.hintLayer.opacity = old.hintLayer.opacity
+        scene.update(layout: model.layout, ghosts: model.ghosts, animated: false)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.replaceSublayer(old.root, with: scene.root)
+        CATransaction.commit()
+    }
 
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { true }
@@ -111,20 +137,21 @@ final class TypewriterView: NSView, NSTextInputClient {
         guard flags.contains(.command) else { return super.performKeyEquivalent(with: event) }
         switch event.keyCode {
         case 36, 76: delegate?.typewriterViewDidCommit(self)
-        // ⌘← / ⌘→ cycle the hardware color, ⌘↑ / ⌘↓ cycle the colored part.
-        case 123: changeAppearance { Appearance.cycleColor(-1) }
-        case 124: changeAppearance { Appearance.cycleColor(1) }
-        case 125: changeAppearance { Appearance.cyclePart(1) }
-        case 126: changeAppearance { Appearance.cyclePart(-1) }
-        default: break
+        // ⌘← / ⌘→ cycle the hardware color.
+        case 123: changeHardware(-1)
+        case 124: changeHardware(1)
+        default:
+            // ⌘, shows the light settings. The panel does not take the keyboard focus.
+            if event.charactersIgnoringModifiers == "," { LightPanel.shared.toggle() }
         }
         return true // Swallow all other command shortcuts.
     }
 
-    private func changeAppearance(_ change: () -> Void) {
-        change()
-        scene.applyAppearance()
-        showNotice("\(Appearance.color.name) · \(Appearance.part.title)", duration: 1.5)
+    private func changeHardware(_ step: Int) {
+        Hardware.cycle(step)
+        guard let v = Hardware.current else { return }
+        reloadScene(variant: v)
+        showNotice(v.title, duration: 1.5)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -205,7 +232,7 @@ final class TypewriterView: NSView, NSTextInputClient {
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         let m = metrics
-        let x = m.printX(col: model.layout.caretCol) - m.charWidth / 2
+        let x = m.cellX(col: model.layout.caretCol)
         let r = NSRect(x: x, y: m.typingY, width: m.charWidth, height: m.lineHeight)
         return window?.convertToScreen(convert(r, to: nil)) ?? r
     }

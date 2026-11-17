@@ -3,7 +3,8 @@ import QuartzCore
 import CoreText
 import CoreImage
 
-/// Sizes and positions, all derived from the screen size.
+/// Sizes and positions, derived from the screen size and the registration data of the hardware variant.
+/// All values are in points, y goes up.
 struct Metrics {
     let size: CGSize
     let columns: Int
@@ -12,16 +13,28 @@ struct Metrics {
     let lineHeight: CGFloat
     let ascent: CGFloat
     let descent: CGFloat
-    let capHeight: CGFloat
     let left: CGFloat
-    let rodY: CGFloat
-    let rodHeight: CGFloat = 6
-    let carriageWidth: CGFloat
-    let carriageHeight: CGFloat
-    /// Baseline of the current line, in screen coordinates.
+
+    /// Points per pixel of the hardware images.
+    let assetScale: CGFloat
+    /// Height of the housing band at the bottom.
+    let bandHeight: CGFloat
+    /// Top of the dark guide groove in the band.
+    let grooveTopY: CGFloat
+    /// Bottom of the visible carriage body, where it stands on the guide.
+    let carriageBottomY: CGFloat
+    /// Size of the whole carriage image.
+    let carriageSize: CGSize
+    /// The print point inside the carriage image, from its bottom left corner.
+    let printOffset: CGPoint
+    /// Height of the print point: the top of the ceramic insert. The light starts here.
+    let printY: CGFloat
+    let ceramicWidth: CGFloat
+    let visibleCarriageWidth: CGFloat
+    /// Center of the visible carriage body relative to the print point.
+    let carriageCenterOffset: CGFloat
+
     let baselineY: CGFloat
-    /// Top of the T-shaped lamp, where the light comes from.
-    let lampY: CGFloat
     /// Bottom of the current line layer.
     let typingY: CGFloat
     /// Baseline inside a line layer.
@@ -30,10 +43,10 @@ struct Metrics {
 
     static let fontName = "Courier New" as CFString
 
-    init(size: CGSize, columns: Int = 72) {
+    init(size: CGSize, variant v: HardwareVariant, columns: Int = 72) {
         self.size = size
         self.columns = columns
-        let targetWidth = min(size.width * 0.62, 1150)
+        let targetWidth = min(size.width * 0.6, 1100)
         let probe = CTFontCreateWithName(Metrics.fontName, 100, nil)
         let advance = Metrics.advance(of: probe) / 100
         let fontSize = (targetWidth / CGFloat(columns) / advance).rounded(.down)
@@ -41,14 +54,24 @@ struct Metrics {
         charWidth = Metrics.advance(of: font)
         ascent = CTFontGetAscent(font)
         descent = CTFontGetDescent(font)
-        capHeight = CTFontGetCapHeight(font)
         lineHeight = (fontSize * 1.6).rounded()
         left = ((size.width - CGFloat(columns) * charWidth) / 2).rounded()
-        rodY = (size.height * 0.14).rounded()
-        carriageWidth = (charWidth * 7.4).rounded()
-        carriageHeight = (charWidth * 1.55).rounded()
-        baselineY = rodY + carriageHeight / 2 + 3
-        lampY = baselineY + capHeight.rounded()
+
+        let c = v.carriageReg, r = v.railReg
+        visibleCarriageWidth = min(180, max(140, size.width * 0.115))
+        assetScale = visibleCarriageWidth / CGFloat((c.right - c.left) * c.width)
+        bandHeight = min(85, max(65, (size.height * 0.085).rounded()))
+        grooveTopY = bandHeight - CGFloat((r.grooveTop - r.top) * r.height) * assetScale
+        carriageBottomY = bandHeight - 1
+        carriageSize = CGSize(width: CGFloat(c.width) * assetScale, height: CGFloat(c.height) * assetScale)
+        printOffset = CGPoint(x: CGFloat(c.printX) * carriageSize.width, y: CGFloat(1 - c.printY) * carriageSize.height)
+        let bottomOffset = CGFloat(1 - c.bottom) * carriageSize.height
+        printY = carriageBottomY + (printOffset.y - bottomOffset)
+        ceramicWidth = CGFloat(c.ceramicRight - c.ceramicLeft) * carriageSize.width
+        carriageCenterOffset = CGFloat((c.left + c.right) / 2 - c.printX) * carriageSize.width
+
+        // Descenders must not touch the ceramic.
+        baselineY = (printY + descent + 3).rounded()
         baseline = (lineHeight * 0.32).rounded()
         typingY = baselineY - baseline
     }
@@ -62,23 +85,20 @@ struct Metrics {
         return adv.width
     }
 
-    /// Center of the character cell at this column.
-    func printX(col: Int) -> CGFloat {
-        left + CGFloat(min(col, columns)) * charWidth + charWidth / 2
+    /// Left edge of the character cell at this column.
+    func cellX(col: Int) -> CGFloat {
+        left + CGFloat(min(col, columns)) * charWidth
+    }
+
+    /// The print point follows the last written character: it is the center of the cell before the caret.
+    func printX(caretCol: Int) -> CGFloat {
+        cellX(col: caretCol) - charWidth / 2
     }
 }
 
 enum Palette {
-    /// The paper itself. The lighting layer gives it its final color.
-    static let paperAlbedo: CGFloat = 1.0
-    static let ink: CGFloat = 0.24
-    /// Paper color outside the light.
-    static let ambient: (r: Double, g: Double, b: Double) = (0.77, 0.78, 0.84)
-    /// Paper color in the full light of the lamp.
-    static let lamp: (r: Double, g: Double, b: Double) = (0.985, 0.958, 0.885)
-    static var paperBackground: CGColor {
-        CGColor(srgbRed: paperAlbedo * ambient.r, green: paperAlbedo * ambient.g, blue: paperAlbedo * ambient.b, alpha: 1)
-    }
+    static let ink: CGFloat = 0.14
+    static var paperBackground: CGColor { CGColor(srgbRed: 0.84, green: 0.81, blue: 0.76, alpha: 1) }
 }
 
 /// Draws the glyphs (and correction traces) of one line of paper.
@@ -118,7 +138,7 @@ final class LineLayer: CALayer {
         for g in ghosts {
             let x = x0 + CGFloat(g.col) * m.charWidth
             let rect = CGRect(x: x - 0.5, y: y0 - m.descent * 0.7, width: m.charWidth + 1, height: m.ascent * 0.95 + m.descent * 0.7)
-            ctx.setFillColor(CGColor(gray: 1, alpha: 0.9))
+            ctx.setFillColor(CGColor(srgbRed: 1, green: 0.995, blue: 0.985, alpha: 0.85))
             ctx.fill(rect)
             draw(g.char, x: x, y: y0, alpha: 0.07, in: ctx)
         }
@@ -134,9 +154,12 @@ final class LineLayer: CALayer {
     }
 }
 
-/// All layers of the typewriter page: paper, text, lighting, rod and carriage.
+/// All layers of the typewriter page, from back to front:
+/// paper, text, light (multiplied onto paper and ink), housing band, and the moving head
+/// (contact shadow, carriage with ambient shadow, warm reflexes).
 final class PaperScene {
     let metrics: Metrics
+    let variant: HardwareVariant
     let root = CALayer()
     let textContainer = CALayer()
     let markedLayer = CATextLayer()
@@ -145,24 +168,28 @@ final class PaperScene {
 
     private let paper = CALayer()
     private let light = CALayer()
-    private let rod = RodLayer()
-    private let carriageBody = CarriageBodyLayer()
+    private let band = CALayer()
+    private let head = CALayer()
     private let carriage = CALayer()
+    private let ceramicGlow = CAGradientLayer()
+    private let railGlow = CAGradientLayer()
     private let scale: CGFloat
     private var lineLayers: [Int: LineLayer] = [:]
     private var lastCaretLine = 0
+    private var lightSettings = LightSettings.current
+    private var lightGeneration = 0
 
-    init(metrics m: Metrics, scale: CGFloat) {
+    init(metrics m: Metrics, variant: HardwareVariant, scale: CGFloat) {
         metrics = m
+        self.variant = variant
         self.scale = scale
         let b = CGRect(origin: .zero, size: m.size)
         root.frame = b
         root.backgroundColor = Palette.paperBackground
 
         paper.frame = b
-        paper.contents = Self.makePaperImage(width: Int(m.size.width), height: Int(m.size.height))
+        paper.contents = Self.makePaperImage(size: m.size, scale: scale)
         paper.contentsGravity = .resize
-        paper.magnificationFilter = .nearest
         root.addSublayer(paper)
 
         textContainer.anchorPoint = .zero
@@ -179,88 +206,155 @@ final class PaperScene {
         root.addSublayer(markedLayer)
 
         // The light falls on paper and ink alike, so it multiplies everything below it.
-        light.contents = Self.makeLightImage(metrics: m)
+        // It never brightens, so the ink keeps its contrast.
+        light.contents = Self.makeLightImage(metrics: m, settings: lightSettings)
         light.contentsGravity = .resize
-        light.magnificationFilter = .linear
         light.anchorPoint = CGPoint(x: 0.5, y: 0)
-        light.bounds = CGRect(x: 0, y: 0, width: m.size.width * 2, height: m.size.height)
-        light.position = CGPoint(x: m.printX(col: 0), y: 0)
+        light.bounds = CGRect(x: 0, y: 0, width: m.size.width * 2, height: m.size.height - m.bandHeight)
+        light.position = CGPoint(x: m.printX(caretCol: 0), y: m.bandHeight)
         light.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
         root.addSublayer(light)
 
-        rod.contentsScale = scale
-        rod.frame = CGRect(x: 0, y: m.rodY - m.rodHeight / 2, width: m.size.width, height: m.rodHeight)
-        rod.shadowColor = CGColor(gray: 0, alpha: 1)
-        rod.shadowOpacity = 0.22
-        rod.shadowRadius = 1.5
-        rod.shadowOffset = CGSize(width: 0, height: -1.5)
-        root.addSublayer(rod)
+        band.frame = CGRect(x: 0, y: 0, width: m.size.width, height: m.bandHeight)
+        band.contents = Self.makeBandImage(variant: variant, metrics: m, scale: scale)
+        band.contentsGravity = .resize
+        root.addSublayer(band)
 
-        setupCarriage()
+        setupHead()
 
         for t in [hintLayer, noticeLayer] {
             t.font = CTFontCreateWithName(Metrics.fontName, 13, nil)
             t.fontSize = 13
-            t.foregroundColor = CGColor(gray: 0.2, alpha: 0.45)
+            t.foregroundColor = CGColor(gray: 0.25, alpha: 0.5)
             t.contentsScale = scale
             t.alignmentMode = .center
             root.addSublayer(t)
         }
-        hintLayer.frame = CGRect(x: 0, y: m.rodY / 2 - 9, width: m.size.width, height: 18)
-        noticeLayer.frame = CGRect(x: 0, y: m.size.height - 60, width: m.size.width, height: 18)
+        hintLayer.frame = CGRect(x: 0, y: m.size.height - 40, width: m.size.width, height: 18)
+        noticeLayer.frame = CGRect(x: 0, y: m.size.height - 64, width: m.size.width, height: 18)
         noticeLayer.opacity = 0
+
+        applyLightTint()
     }
 
-    /// A small white glossy carriage with a dark T-shaped lamp at the print position.
-    private func setupCarriage() {
+    /// The head group. Its origin is the print point, so carriage, shadows, reflexes and the light share one position.
+    private func setupHead() {
         let m = metrics
-        let w = m.carriageWidth, h = m.carriageHeight
-        let pad: CGFloat = 5
-        carriage.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-        carriage.anchorPoint = CGPoint(x: Self.carriageAnchorX, y: 0.5)
-        carriage.position = CGPoint(x: m.printX(col: 0), y: m.rodY)
+        head.bounds = .zero
+        head.position = CGPoint(x: m.printX(caretCol: 0), y: m.printY)
+        let carriageFrame = CGRect(x: -m.printOffset.x, y: -m.printOffset.y,
+                                   width: m.carriageSize.width, height: m.carriageSize.height)
+        let bottom = m.carriageBottomY - m.printY
 
-        let body = carriageBody
-        body.frame = carriage.bounds.insetBy(dx: -pad, dy: -pad)
-        body.pad = pad
-        body.contentsScale = scale
-        body.setNeedsDisplay()
-        carriage.addSublayer(body)
+        // Contact shadow on the guide: narrow, dark and soft.
+        let contact = CAGradientLayer()
+        contact.type = .radial
+        contact.colors = [CGColor(gray: 0, alpha: 0.45), CGColor(gray: 0, alpha: 0.18), CGColor(gray: 0, alpha: 0)]
+        contact.locations = [0, 0.6, 1]
+        contact.startPoint = CGPoint(x: 0.5, y: 0.5)
+        contact.endPoint = CGPoint(x: 1, y: 1)
+        contact.bounds = CGRect(x: 0, y: 0, width: m.visibleCarriageWidth * 1.04, height: 5)
+        contact.position = CGPoint(x: m.carriageCenterOffset, y: bottom - 0.5)
+        head.addSublayer(contact)
 
-        // The lamp: a slim dark T standing on the carriage.
-        let color = CGColor(srgbRed: 0.17, green: 0.17, blue: 0.18, alpha: 1)
-        let stroke: CGFloat = 1.5
-        let x = w * Self.carriageAnchorX
-        let top = m.lampY - (m.rodY - h / 2)
-        let stem = CALayer()
-        stem.backgroundColor = color
-        stem.frame = CGRect(x: x - stroke / 2, y: h - 1, width: stroke, height: top - h + 1)
-        carriage.addSublayer(stem)
-        let bar = CALayer()
-        bar.backgroundColor = color
-        let barWidth = (m.charWidth * 0.95).rounded()
-        bar.frame = CGRect(x: x - barWidth / 2, y: top - stroke, width: barWidth, height: stroke)
-        carriage.addSublayer(bar)
+        // Faint warm reflex on the guide close to the head.
+        railGlow.type = .radial
+        railGlow.startPoint = CGPoint(x: 0.5, y: 0.5)
+        railGlow.endPoint = CGPoint(x: 1, y: 1)
+        railGlow.bounds = CGRect(x: 0, y: 0, width: m.visibleCarriageWidth * 1.5, height: 4)
+        railGlow.position = CGPoint(x: 0, y: m.grooveTopY - m.printY + 1)
+        railGlow.compositingFilter = CIFilter(name: "CIScreenBlendMode")
+        head.addSublayer(railGlow)
 
-        root.addSublayer(carriage)
-        applyAppearance()
+        // Carriage with a soft ambient shadow, derived from its own contour.
+        carriage.contents = variant.carriage
+        carriage.contentsGravity = .resize
+        carriage.frame = carriageFrame
+        carriage.shadowColor = CGColor(gray: 0, alpha: 1)
+        carriage.shadowOpacity = 0.14
+        carriage.shadowRadius = 4
+        carriage.shadowOffset = CGSize(width: 0, height: -2)
+        head.addSublayer(carriage)
+
+        // Warm light on the ceramic and the inner edges of the notch, masked to the carriage.
+        let glowHost = CALayer()
+        glowHost.frame = carriageFrame
+        let mask = CALayer()
+        mask.contents = variant.carriage
+        mask.contentsGravity = .resize
+        mask.frame = glowHost.bounds
+        glowHost.mask = mask
+        ceramicGlow.type = .radial
+        ceramicGlow.startPoint = CGPoint(x: 0.5, y: 0.5)
+        ceramicGlow.endPoint = CGPoint(x: 1, y: 1)
+        ceramicGlow.bounds = CGRect(x: 0, y: 0, width: m.ceramicWidth * 1.9, height: m.ceramicWidth * 0.9)
+        ceramicGlow.position = CGPoint(x: m.printOffset.x, y: m.printOffset.y + 1)
+        glowHost.addSublayer(ceramicGlow)
+        glowHost.compositingFilter = CIFilter(name: "CIScreenBlendMode")
+        head.addSublayer(glowHost)
+
+        root.addSublayer(head)
     }
-
-    /// Applies the hardware color to the carriage and/or the rod.
-    func applyAppearance() {
-        let color = Appearance.color
-        carriageBody.color = Appearance.carriageColored ? color : nil
-        rod.color = Appearance.rodColored ? color : nil
-        carriageBody.setNeedsDisplay()
-        rod.setNeedsDisplay()
-    }
-
-    /// The lamp, and with it the print position, is in the middle of the carriage.
-    private static let carriageAnchorX: CGFloat = 0.5
 
     func setHint(_ text: String) { hintLayer.string = text }
 
+    // MARK: Light
+
+    func updateLight(_ settings: LightSettings) {
+        guard settings != lightSettings else { return }
+        lightSettings = settings
+        applyLightTint()
+        lightGeneration += 1
+        let generation = lightGeneration
+        let m = metrics
+        DispatchQueue.global(qos: .userInteractive).async {
+            let image = Self.makeLightImage(metrics: m, settings: settings)
+            DispatchQueue.main.async {
+                guard generation == self.lightGeneration else { return }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.light.contents = image
+                CATransaction.commit()
+            }
+        }
+    }
+
+    /// The reflexes use the light color and fade out with the brightness.
+    private func applyLightTint() {
+        let c = lightSettings.color
+        let k = min(1, lightSettings.brightness)
+        func warm(_ a: Double) -> CGColor { CGColor(srgbRed: c.r, green: c.g * 0.92, blue: c.b * 0.75, alpha: a) }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        ceramicGlow.colors = [warm(0.5 * k), warm(0.12 * k), warm(0)]
+        ceramicGlow.locations = [0, 0.45, 1]
+        railGlow.colors = [warm(0.3 * k), warm(0)]
+        CATransaction.commit()
+    }
+
     // MARK: Updates
+
+    private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    /// Moves a layer to a new position. The animation starts from where the layer is on screen right now,
+    /// so fast typing never builds up a queue of animations.
+    private func move(_ layer: CALayer, to target: CGPoint, duration: CFTimeInterval, timing: CAMediaTimingFunction) {
+        let from = layer.presentation()?.position ?? layer.position
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.position = target
+        CATransaction.commit()
+        guard duration > 0, from != target else {
+            layer.removeAnimation(forKey: "move")
+            return
+        }
+        let a = CABasicAnimation(keyPath: "position")
+        a.fromValue = NSValue(point: from)
+        a.toValue = NSValue(point: target)
+        a.duration = duration
+        a.timingFunction = timing
+        layer.add(a, forKey: "move")
+    }
 
     func update(layout: Layout, ghosts allGhosts: [Ghost], animated: Bool) {
         let m = metrics
@@ -306,249 +400,126 @@ final class PaperScene {
                 l.setNeedsDisplay()
             }
         }
+        markedLayer.position = CGPoint(x: m.cellX(col: layout.caretCol), y: m.typingY)
         CATransaction.commit()
 
         let lineChanged = caretLine != lastCaretLine
-        let x = m.printX(col: layout.caretCol)
-
-        // The lamp sits on the carriage, so the light moves together with it.
-        CATransaction.begin()
-        if !animated {
-            CATransaction.setDisableActions(true)
-        } else if lineChanged {
-            CATransaction.setAnimationDuration(0.38)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(controlPoints: 0.5, 0, 0.2, 1))
-        } else {
-            CATransaction.setAnimationDuration(0.06)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        }
-        carriage.position = CGPoint(x: x, y: carriage.position.y)
-        light.position = CGPoint(x: x, y: light.position.y)
-        textContainer.position = CGPoint(x: textContainer.position.x, y: m.typingY + CGFloat(caretLine) * m.lineHeight)
-        markedLayer.position = CGPoint(x: x - m.charWidth / 2, y: m.typingY)
-        CATransaction.commit()
+        let x = m.printX(caretCol: layout.caretCol)
+        let instant = !animated || reduceMotion
+        // A short, softly caught glide while typing; a quick return to the line start on a new line.
+        let duration: CFTimeInterval = instant ? 0 : (lineChanged ? 0.32 : 0.09)
+        let timing = lineChanged ? CAMediaTimingFunction(controlPoints: 0.45, 0, 0.2, 1) : CAMediaTimingFunction(controlPoints: 0.2, 0.7, 0.3, 1)
+        move(head, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing)
+        move(light, to: CGPoint(x: x, y: m.bandHeight), duration: duration, timing: timing)
+        move(textContainer, to: CGPoint(x: m.left - m.linePadding, y: m.typingY + CGFloat(caretLine) * m.lineHeight),
+             duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
 
         lastCaretLine = caretLine
     }
 
     // MARK: Images
 
-    private static func makePaperImage(width w: Int, height h: Int) -> CGImage? {
-        var px = [UInt8](repeating: 0, count: w * h * 4)
-        var rng = SplitMix64(seed: 42)
-        let base = Double(Palette.paperAlbedo) - 0.008
-        for i in 0..<(w * h) {
-            let v = UInt8(max(0, min(255, (base + (rng.nextUnit() - 0.5) * 0.012) * 255)))
-            px[i * 4] = v
-            px[i * 4 + 1] = v
-            px[i * 4 + 2] = v
-            px[i * 4 + 3] = 255
+    /// The paper texture, mirrored at its edges so it can cover any screen without visible seams.
+    private static func makePaperImage(size: CGSize, scale: CGFloat) -> CGImage? {
+        guard let tile = Hardware.paper else { return nil }
+        let w = Int(size.width * scale), h = Int(size.height * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        let tw = tile.width, th = tile.height
+        for ty in stride(from: 0, to: h, by: th) {
+            for tx in stride(from: 0, to: w, by: tw) {
+                ctx.saveGState()
+                let flipX = (tx / tw) % 2 == 1, flipY = (ty / th) % 2 == 1
+                ctx.translateBy(x: CGFloat(tx + (flipX ? tw : 0)), y: CGFloat(ty + (flipY ? th : 0)))
+                ctx.scaleBy(x: flipX ? -1 : 1, y: flipY ? -1 : 1)
+                ctx.draw(tile, in: CGRect(x: 0, y: 0, width: tw, height: th))
+                ctx.restoreGState()
+            }
         }
-        return makeImage(&px, w, h)
+        // A lighter, less yellow sheet, so the warm light can still add warmth.
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0.99, blue: 0.985, alpha: 0.35))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()
     }
 
-    /// The lighting of the page, twice as wide as the screen and centered on the lamp.
-    /// Values are measured from the reference: a very wide beam (the sides are only about 15° above
-    /// the rod), full strength right at the carriage, and a smooth falloff with the distance to the lamp
-    /// that reaches over the whole page. Outside the beam the paper gets only the cool ambient light,
-    /// which leaves flat shadow wedges left and right of the carriage.
-    private static func makeLightImage(metrics m: Metrics) -> CGImage? {
+    /// The housing band: the top of the rail image (lip and guide groove) at the carriage scale,
+    /// stretched to the full width. The taller base comes from repeating the brushed surface below
+    /// the groove, not from stretching the guide.
+    private static func makeBandImage(variant v: HardwareVariant, metrics m: Metrics, scale: CGFloat) -> CGImage? {
+        let r = v.railReg
+        let rail = v.rail
+        let w = Int(m.size.width * scale), h = Int(m.bandHeight * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        let px = { (v: Double) in Int((v * r.height).rounded()) }
+        let top = px(r.top), bottom = px(r.bottom)
+        let split = px(r.grooveBottom + (r.bottom - r.grooveBottom) * 0.2)
+        let pxScale = m.assetScale * scale // device pixels per asset pixel
+        // Skip the transparent crop margin at both ends.
+        let x0 = 8, cw = rail.width - 16
+        guard let head = rail.cropping(to: CGRect(x: x0, y: top, width: cw, height: split - top)),
+              let body = rail.cropping(to: CGRect(x: x0, y: split, width: cw, height: bottom - 2 - split)) else { return nil }
+        let headH = CGFloat(head.height) * pxScale
+        ctx.draw(head, in: CGRect(x: 0, y: CGFloat(h) - headH, width: CGFloat(w), height: headH))
+        // Extend the brushed surface below the groove down to the bottom edge. Only this flat part
+        // is lengthened; the guide keeps its proportions.
+        ctx.draw(body, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h) - headH))
+        return ctx.makeImage()
+    }
+
+    /// The lighting of the paper, twice as wide as the screen and centered on the print point.
+    /// A warm ivory fan opens upward from the print point with soft side edges and a smooth distance
+    /// falloff, plus a small bright area right at the print point. Outside the fan the paper gets the
+    /// dimmer ambient light. Dithered against banding.
+    static func makeLightImage(metrics m: Metrics, settings s: LightSettings) -> CGImage? {
         let step = 2.0
-        let W = Double(m.size.width), H = Double(m.size.height)
-        let w = Int(W * 2 / step), h = Int(H / step)
+        let W = Double(m.size.width)
+        let paperH = Double(m.size.height - m.bandHeight)
+        let w = Int(W * 2 / step), h = Int(paperH / step)
         var px = [UInt8](repeating: 0, count: w * h * 4)
         var rng = SplitMix64(seed: 7)
-        let floorY = Double(m.rodY + m.rodHeight / 2)
-        let amb = Palette.ambient
-        let peak = Palette.lamp
-        let half = 75.0 * .pi / 180
-        // The virtual apex lies below the carriage, so the beam is as wide as the carriage where it leaves it.
-        let apexY = Double(m.rodY + m.carriageHeight / 2) - Double(m.carriageWidth / 2) / tan(half)
-        let soft = 0.1
-        let reach = 0.7 * H
+        let apexY = Double(m.printY - m.bandHeight)
+        let half = s.spread / 2 * .pi / 180
+        let soft = max(0.01, s.softness * half)
+        let reach = max(1, s.reach * paperH)
+        let lc = s.color
+        let amb = s.ambient
+        // The ambient light is slightly cooler than the lamp.
+        let ambient = (r: amb, g: amb * 0.99, b: amb * 0.985)
         func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
             let t = max(0, min(1, (x - e0) / (e1 - e0)))
             return t * t * (3 - 2 * t)
         }
         func mix(_ p: Double, _ q: Double, _ t: Double) -> Double { p + (q - p) * t }
         for row in 0..<h {
-            let y = (Double(h - 1 - row) + 0.5) * step
-            let v = y - apexY
+            let v = (Double(h - 1 - row) + 0.5) * step - apexY
             for col in 0..<w {
                 let u = (Double(col) + 0.5) * step - W
-                var lit = 0.0
-                if y >= floorY {
-                    let d = (u * u + v * v).squareRoot()
+                let d = (u * u + v * v).squareRoot()
+                var beam = 0.0
+                if v > 0 {
                     let angle = atan2(abs(u), v)
-                    // The edge gets softer with distance, like a real penumbra.
-                    let s = soft * min(1, 0.25 + d / (0.5 * H))
-                    let beam = 1 - smooth(half - s, half + s, angle)
-                    let falloff = exp(-(d / reach) * (d / reach))
-                    lit = beam * falloff
+                    beam = 1 - smooth(half - soft, half + soft * 0.5, angle)
                 }
+                let falloff = exp(-(d / reach) * (d / reach))
+                let hot = 0.55 * exp(-d / 16) * smooth(-8, 2, v)
+                let k = min(1, s.brightness * (beam * falloff + hot))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
-                px[i] = q(mix(amb.r, peak.r, lit))
-                px[i + 1] = q(mix(amb.g, peak.g, lit))
-                px[i + 2] = q(mix(amb.b, peak.b, lit))
+                px[i] = q(mix(ambient.r, lc.r, k))
+                px[i + 1] = q(mix(ambient.g, lc.g, k))
+                px[i + 2] = q(mix(ambient.b, lc.b, k))
                 px[i + 3] = 255
             }
         }
-        return makeImage(&px, w, h)
-    }
-
-    private static func makeImage(_ px: inout [UInt8], _ w: Int, _ h: Int) -> CGImage? {
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                  space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        return ctx.makeImage()
-    }
-}
-
-private func makeGradient(_ stops: [(CGFloat, CGColor)]) -> CGGradient {
-    CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!, colors: stops.map(\.1) as CFArray, locations: stops.map(\.0))!
-}
-
-/// Fine grain of bead-blasted aluminum, drawn tiled at low alpha.
-private let aluminumGrain: CGImage? = {
-    let n = 128
-    var px = [UInt8](repeating: 0, count: n * n * 4)
-    var rng = SplitMix64(seed: 3)
-    for i in 0..<(n * n) {
-        let v = UInt8(rng.nextUnit() * 255)
-        px[i * 4] = v; px[i * 4 + 1] = v; px[i * 4 + 2] = v; px[i * 4 + 3] = 255
-    }
-    let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-    return px.withUnsafeMutableBytes { buf in
-        CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
-                  space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
-    }
-}()
-
-/// The rod: black high gloss, or anodized aluminum in the hardware color.
-final class RodLayer: CALayer {
-    var color: HardwareColor?
-
-    override func action(forKey event: String) -> CAAction? { NSNull() }
-
-    override func draw(in ctx: CGContext) {
-        let b = bounds
-        let stops: [(CGFloat, CGColor)]
-        if let c = color {
-            stops = [
-                (0, c.scaled(0.55)), (0.25, c.scaled(0.78)), (0.5, c.scaled(0.95)),
-                (0.66, c.lifted(0.35)), (0.8, c.scaled(1.0)), (1, c.scaled(0.8)),
-            ]
-        } else {
-            // Black lacquer: deep black with a crisp reflection band of the bright paper above.
-            stops = [
-                (0, CGColor(gray: 0.01, alpha: 1)), (0.3, CGColor(gray: 0.04, alpha: 1)), (0.52, CGColor(gray: 0.09, alpha: 1)),
-                (0.62, CGColor(gray: 0.42, alpha: 1)), (0.72, CGColor(gray: 0.1, alpha: 1)), (0.9, CGColor(gray: 0.05, alpha: 1)),
-                (1, CGColor(gray: 0.22, alpha: 1)),
-            ]
+        return px.withUnsafeMutableBytes { buf in
+            CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                      space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
         }
-        ctx.drawLinearGradient(makeGradient(stops), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
-        if color != nil, let grain = aluminumGrain {
-            ctx.saveGState()
-            ctx.setAlpha(0.05)
-            ctx.setBlendMode(.overlay)
-            ctx.draw(grain, in: CGRect(x: 0, y: 0, width: 64, height: 64), byTiling: true)
-            ctx.restoreGState()
-        }
-    }
-}
-
-/// The carriage body: a pill of anodized aluminum in the hardware color, or white high gloss.
-final class CarriageBodyLayer: CALayer {
-    var pad: CGFloat = 5
-    var color: HardwareColor?
-
-    override func action(forKey event: String) -> CAAction? { NSNull() }
-
-    override func draw(in ctx: CGContext) {
-        let b = bounds.insetBy(dx: pad, dy: pad)
-        let r = b.height / 2
-        let path = CGPath(roundedRect: b, cornerWidth: r, cornerHeight: r, transform: nil)
-
-        // Contact shadow on the paper.
-        ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 3, color: CGColor(gray: 0, alpha: 0.3))
-        ctx.addPath(path)
-        ctx.setFillColor(color?.scaled(0.9) ?? CGColor(gray: 0.96, alpha: 1))
-        ctx.fillPath()
-        ctx.restoreGState()
-
-        ctx.saveGState()
-        ctx.addPath(path)
-        ctx.clip()
-        if let c = color {
-            drawAluminum(c, in: b, radius: r, ctx: ctx)
-        } else {
-            drawGloss(in: b, radius: r, ctx: ctx)
-        }
-        ctx.restoreGState()
-
-        ctx.addPath(path)
-        ctx.setStrokeColor(CGColor(gray: 0.3, alpha: color == nil ? 0.22 : 0.3))
-        ctx.setLineWidth(0.5)
-        ctx.strokePath()
-
-        // Two small dots.
-        let d = max(2.5, (b.height * 0.18).rounded())
-        let cy = b.midY - 0.5
-        let dark = (color.map { ($0.r + $0.g + $0.b) / 3 } ?? 1) < 0.35
-        for (fx, gray) in [(0.36, dark ? 0.55 : 0.72), (0.47, dark ? 0.08 : 0.22)] as [(CGFloat, CGFloat)] {
-            let dot = CGRect(x: b.minX + b.width * fx - d / 2, y: cy - d / 2, width: d, height: d)
-            ctx.addEllipse(in: dot)
-            ctx.setFillColor(CGColor(gray: gray, alpha: 1))
-            ctx.fillPath()
-        }
-    }
-
-    private func drawGloss(in b: CGRect, radius r: CGFloat, ctx: CGContext) {
-        ctx.drawLinearGradient(makeGradient([
-            (0, CGColor(gray: 0.86, alpha: 1)), (0.35, CGColor(gray: 0.95, alpha: 1)),
-            (0.7, CGColor(gray: 0.99, alpha: 1)), (1, CGColor(gray: 1, alpha: 1)),
-        ]), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
-        let gloss = CGRect(x: b.minX + r * 0.6, y: b.midY + 0.5, width: b.width - r * 1.2, height: b.height / 2 - 1.5)
-        ctx.addPath(CGPath(roundedRect: gloss, cornerWidth: gloss.height / 2, cornerHeight: gloss.height / 2, transform: nil))
-        ctx.clip()
-        ctx.drawLinearGradient(makeGradient([(0, CGColor(gray: 1, alpha: 0)), (1, CGColor(gray: 1, alpha: 0.9))]),
-                               start: CGPoint(x: 0, y: gloss.minY), end: CGPoint(x: 0, y: gloss.maxY), options: [])
-    }
-
-    /// Satin anodized aluminum: soft vertical shading, fine grain, and a bright chamfer on the top edge.
-    private func drawAluminum(_ c: HardwareColor, in b: CGRect, radius r: CGFloat, ctx: CGContext) {
-        ctx.drawLinearGradient(makeGradient([
-            (0, c.scaled(0.78)), (0.3, c.scaled(0.93)), (0.65, c.scaled(1.03)), (1, c.lifted(0.18)),
-        ]), start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
-        // Broad satin sheen from the lamp above.
-        ctx.drawRadialGradient(makeGradient([(0, CGColor(gray: 1, alpha: 0.22)), (1, CGColor(gray: 1, alpha: 0))]),
-                               startCenter: CGPoint(x: b.midX, y: b.maxY), startRadius: 0,
-                               endCenter: CGPoint(x: b.midX, y: b.maxY), endRadius: b.width * 0.55, options: [])
-        if let grain = aluminumGrain {
-            ctx.saveGState()
-            ctx.setAlpha(0.07)
-            ctx.setBlendMode(.overlay)
-            ctx.draw(grain, in: CGRect(x: 0, y: 0, width: 64, height: 64), byTiling: true)
-            ctx.restoreGState()
-        }
-        // Diamond-cut chamfer: a thin bright line along the upper edge, a darker one along the lower edge.
-        let inset = b.insetBy(dx: 0.6, dy: 0.6)
-        let edge = CGPath(roundedRect: inset, cornerWidth: r - 0.6, cornerHeight: r - 0.6, transform: nil)
-        ctx.saveGState()
-        ctx.clip(to: CGRect(x: b.minX, y: b.midY, width: b.width, height: b.height / 2))
-        ctx.addPath(edge)
-        ctx.setStrokeColor(c.lifted(0.75, alpha: 0.95))
-        ctx.setLineWidth(0.9)
-        ctx.strokePath()
-        ctx.restoreGState()
-        ctx.saveGState()
-        ctx.clip(to: CGRect(x: b.minX, y: b.minY, width: b.width, height: b.height / 2))
-        ctx.addPath(edge)
-        ctx.setStrokeColor(c.scaled(0.6, alpha: 0.6))
-        ctx.setLineWidth(0.7)
-        ctx.strokePath()
-        ctx.restoreGState()
     }
 }

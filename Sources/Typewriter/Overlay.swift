@@ -32,7 +32,7 @@ final class OverlayController: TypewriterViewDelegate {
 
         let hint: String
         switch focus {
-        case .editable(let name): hint = "⌘↩ insert into \(name)    esc discard"
+        case .editable(let name): hint = "⌘↩ insert into \(name)    esc discard    ⌘, light"
         case .notEditable: hint = "⌘↩ copy to clipboard    esc discard"
         case .unknown: hint = "⌘↩ copy to clipboard (allow Accessibility to insert directly)    esc discard"
         }
@@ -47,15 +47,19 @@ final class OverlayController: TypewriterViewDelegate {
         w.hasShadow = false
         w.setFrame(frame, display: false)
 
-        let metrics = Metrics(size: frame.size)
-        let model = TextModel(columns: metrics.columns, text: History.loadDraft() ?? "")
-        if let demo = ProcessInfo.processInfo.environment["TYPEWRITER_DEMO"] {
-            // Debug aid: prefilled text with one correction, to check the look.
-            model.insert(demo + " typo")
-            for _ in 0..<4 { model.deleteBackward() }
-            model.insert("fixed")
+        guard let variant = Hardware.current else {
+            HUD.show("Hardware assets are missing")
+            return
         }
-        let v = TypewriterView(frame: CGRect(origin: .zero, size: frame.size), model: model, metrics: metrics,
+        let model = TextModel(columns: 72, text: History.loadDraft() ?? "")
+        if let demo = ProcessInfo.processInfo.environment["TYPEWRITER_DEMO"] {
+            // Debug aid: prefilled text to check the look. A "~" is typed and removed again with the correction tape.
+            for part in demo.split(separator: "~", omittingEmptySubsequences: false).enumerated() {
+                if part.offset > 0 { model.insert("x"); model.deleteBackward() }
+                model.insert(String(part.element))
+            }
+        }
+        let v = TypewriterView(frame: CGRect(origin: .zero, size: frame.size), model: model, variant: variant,
                                sounds: sounds, scale: screen.backingScaleFactor, hint: hint)
         v.delegate = self
         w.contentView = v

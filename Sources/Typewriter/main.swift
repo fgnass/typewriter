@@ -8,7 +8,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotKey: HotKey?
     private let recentMenu = NSMenu()
     private let colorMenu = NSMenu()
-    private let partMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ⌘^ : keycode 10 is the key left of "1" on ISO keyboards (German "^").
@@ -46,9 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let colorItem = NSMenuItem(title: "Hardware Color", action: nil, keyEquivalent: "")
         colorItem.submenu = colorMenu
         menu.addItem(colorItem)
-        let partItem = NSMenuItem(title: "Colored Part", action: nil, keyEquivalent: "")
-        partItem.submenu = partMenu
-        menu.addItem(partItem)
+        let lightItem = NSMenuItem(title: "Light Settings…", action: #selector(showLight), keyEquivalent: ",")
+        lightItem.target = self
+        menu.addItem(lightItem)
         let recent = NSMenuItem(title: "Recent Pages", action: nil, keyEquivalent: "")
         recent.submenu = recentMenu
         menu.addItem(recent)
@@ -71,22 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.item(withTag: 3)?.state = sounds.humEnabled ? .on : .off
         if Inserter.isTrusted, let ax = menu.item(withTag: 2) { menu.removeItem(ax) }
         colorMenu.removeAllItems()
-        for (i, c) in HardwareColor.all.enumerated() {
-            if i == 7 { colorMenu.addItem(.separator()) } // MacBook colors first, then iMac colors.
-            let item = NSMenuItem(title: c.name, action: #selector(selectColor(_:)), keyEquivalent: "")
+        for (i, c) in Hardware.ids.enumerated() {
+            if i == 7 { colorMenu.addItem(.separator()) } // MacBook colors first, then MacBook Neo colors.
+            let item = NSMenuItem(title: c.title, action: #selector(selectColor(_:)), keyEquivalent: "")
             item.target = self
             item.tag = i
-            item.state = c == Appearance.color ? .on : .off
-            item.image = swatch(c)
+            item.state = c.id == Hardware.currentID ? .on : .off
             colorMenu.addItem(item)
-        }
-        partMenu.removeAllItems()
-        for (i, p) in ColoredPart.allCases.enumerated() {
-            let item = NSMenuItem(title: p.title, action: #selector(selectPart(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = i
-            item.state = p == Appearance.part ? .on : .off
-            partMenu.addItem(item)
         }
         recentMenu.removeAllItems()
         let pages = History.recent()
@@ -103,20 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openTypewriter() { overlay.show() }
-    @objc private func selectColor(_ sender: NSMenuItem) { Appearance.color = HardwareColor.all[sender.tag] }
-    @objc private func selectPart(_ sender: NSMenuItem) { Appearance.part = ColoredPart.allCases[sender.tag] }
-
-    private func swatch(_ c: HardwareColor) -> NSImage {
-        NSImage(size: NSSize(width: 12, height: 12), flipped: false) { r in
-            let path = NSBezierPath(ovalIn: r.insetBy(dx: 0.5, dy: 0.5))
-            NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1).setFill()
-            path.fill()
-            NSColor(white: 0, alpha: 0.25).setStroke()
-            path.lineWidth = 0.5
-            path.stroke()
-            return true
-        }
-    }
+    @objc private func selectColor(_ sender: NSMenuItem) { Hardware.currentID = Hardware.ids[sender.tag].id }
+    @objc private func showLight() { LightPanel.shared.toggle() }
     @objc private func toggleSound() { sounds.enabled.toggle() }
     @objc private func toggleHum() { sounds.humEnabled.toggle() }
     @objc private func showHistory() { NSWorkspace.shared.open(History.directory) }
