@@ -66,7 +66,7 @@ enum Hardware {
         ("silver", "Silver", (0.86, 0.865, 0.875)),
         ("space-gray", "Space Gray", (0.47, 0.475, 0.49)),
         ("space-black", "Space Black", (0.2, 0.2, 0.21)),
-        ("gold", "Gold", nil),
+        ("gold", "Rose Gold", nil),
         ("starlight", "Starlight", (0.89, 0.86, 0.8)),
         ("midnight", "Midnight", (0.19, 0.22, 0.27)),
         ("sky-blue", "Sky Blue", (0.77, 0.83, 0.87)),
