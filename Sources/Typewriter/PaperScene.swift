@@ -437,29 +437,36 @@ final class PaperScene {
         let m = metrics
         typealias C = CarriageGeometry
         let s = m.assetScale
-        let host = CALayer()
-        host.frame = m.carriageFrame
-        let pitch: CGFloat = 3.2, hole: CGFloat = 1.3
+        // Everything in whole device pixels, so every hole looks exactly the same.
+        let pitchPx = max(4, (3.2 * scale).rounded())
+        let holePx = max(2, (1.3 * scale).rounded())
+        let tilePx = (holePx / 0.62).rounded() // the hole image has a rim around the hole
+        let rows = 5
         let left = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.09) * s
         let right = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.38) * s
-        let midY = (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s - 0.5
-        let rows = 5
-        let cols = Int((right - left) / pitch)
+        let cols = Int((right - left) * scale / pitchPx)
+        let w = Int(CGFloat(cols - 1) * pitchPx + tilePx), h = Int(CGFloat(rows - 1) * pitchPx + tilePx)
+        let layer = CALayer()
+        guard w > 0, h > 0,
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return layer }
+        ctx.interpolationQuality = .high
         for row in 0..<rows {
             for col in 0..<cols {
-                let h = CALayer()
-                h.contents = variant.grilleHole
-                h.contentsGravity = .resize
-                // The hole image has a rim; its inner hole is about 60 % of the canvas.
-                let d = hole / 0.62
-                h.frame = CGRect(x: left + CGFloat(col) * pitch - d / 2,
-                                 y: midY + (CGFloat(row) - CGFloat(rows - 1) / 2) * pitch - d / 2, width: d, height: d)
-                host.addSublayer(h)
+                ctx.draw(variant.grilleHole, in: CGRect(x: CGFloat(col) * pitchPx, y: CGFloat(row) * pitchPx,
+                                                        width: tilePx, height: tilePx))
             }
         }
-        host.shouldRasterize = true
-        host.rasterizationScale = scale
-        return host
+        layer.contents = ctx.makeImage()
+        layer.contentsScale = scale
+        // The layer lives in the head group (origin at the print point). Place it on whole device pixels.
+        let midY = (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s
+        let size = CGSize(width: CGFloat(w) / scale, height: CGFloat(h) / scale)
+        let x = ((m.carriageFrame.minX + left) * scale).rounded() / scale
+        let y = ((m.carriageFrame.minY + midY - size.height / 2) * scale).rounded() / scale
+        layer.frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
+        return layer
     }
 
     func setHint(_ text: String) { hintLayer.string = text }
