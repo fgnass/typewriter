@@ -439,7 +439,7 @@ final class PaperScene {
         let s = m.assetScale
         let host = CALayer()
         host.frame = m.carriageFrame
-        let pitch: CGFloat = 2.4, hole: CGFloat = 0.8
+        let pitch: CGFloat = 3.2, hole: CGFloat = 1.3
         let left = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.09) * s
         let right = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.38) * s
         let midY = (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s - 0.5
