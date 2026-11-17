@@ -8,7 +8,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Typewriter "$APP/Contents/MacOS/"
 cp Resources/Info.plist "$APP/Contents/"
-cp -R Resources/Hardware "$APP/Contents/Resources/Hardware"
+cp -R Resources/Fin "$APP/Contents/Resources/Fin"
 # Sound set: TYPEWRITER_SOUNDS=electric uses Resources/Sounds-electric, otherwise Resources/Sounds.
 SOUNDS=Resources/Sounds
 if [[ "${TYPEWRITER_SOUNDS:-electric}" == electric && -d Resources/Sounds-electric ]]; then SOUNDS=Resources/Sounds-electric; fi

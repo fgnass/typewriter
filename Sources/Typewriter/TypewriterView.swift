@@ -27,7 +27,7 @@ final class TypewriterView: NSView, NSTextInputClient {
         self.sounds = sounds
         self.scale = scale
         self.hint = hint
-        metrics = Metrics(size: frame.size, variant: variant)
+        metrics = Metrics(size: frame.size)
         scene = PaperScene(metrics: metrics, variant: variant, scale: scale)
         super.init(frame: frame)
         layer = CALayer()
@@ -57,7 +57,7 @@ final class TypewriterView: NSView, NSTextInputClient {
     /// Builds the scene again for another hardware variant. The text stays.
     private func reloadScene(variant: HardwareVariant) {
         let old = scene
-        metrics = Metrics(size: bounds.size, variant: variant)
+        metrics = Metrics(size: bounds.size)
         scene = PaperScene(metrics: metrics, variant: variant, scale: scale)
         scene.setHint(hint)
         scene.hintLayer.opacity = old.hintLayer.opacity
@@ -115,6 +115,7 @@ final class TypewriterView: NSView, NSTextInputClient {
             sounds.play(.bell)
         }
         refresh()
+        if clean.contains(where: { !$0.isWhitespace }) { scene.flashStatus() }
         delegate?.typewriterViewDidChange(self)
     }
 

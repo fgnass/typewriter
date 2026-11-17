@@ -1,0 +1,22 @@
+{
+  "canvas": {
+    "width": 1774,
+    "height": 887
+  },
+  "lamp": {
+    "start": [
+      226,
+      503
+    ],
+    "end": [
+      1134,
+      500
+    ]
+  },
+  "status": [
+    1300,
+    578
+  ],
+  "masking_fin_center_x": 1290,
+  "composition": "All full-canvas layers use the same origin and scale; never trim individually."
+}

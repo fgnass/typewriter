@@ -15,23 +15,24 @@ struct Metrics {
     let descent: CGFloat
     let left: CGFloat
 
-    /// Height of the housing band at the bottom.
+    /// Points per pixel of the hardware images.
+    let assetScale: CGFloat
+    /// Height of the rail band at the bottom of the screen.
     let bandHeight: CGFloat
-    /// Top of the dark guide groove in the band.
+    /// Top of the dark guide groove in the rail.
     let grooveTopY: CGFloat
-    /// The metal block of the carriage.
-    let carriageWidth: CGFloat
-    let carriageHeight: CGFloat
+    /// The carriage image, relative to the print point (fin center, top of the body).
+    let carriageFrame: CGRect
     let carriageBottomY: CGFloat
-    let carriageTopY: CGFloat
-    /// The white thermal element that sticks out of the block and covers the cell of the next character.
-    let elementWidth: CGFloat
-    let elementBottomY: CGFloat
-    let elementTopY: CGFloat
-    /// Where the lamp light starts: the top of the block.
+    let carriageWidth: CGFloat
+    /// Center of the long body relative to the print point.
+    let carriageCenterOffset: CGFloat
+    /// Height of the print point: the top edge of the long body. The lamp strip sits here.
     let printY: CGFloat
-    /// Horizontal position of the lamp relative to the print point.
+    /// Center of the lamp strip relative to the print point.
     let lampOffsetX: CGFloat
+    /// Half length of the lamp strip.
+    let lampHalfLength: CGFloat
     let xHeight: CGFloat
 
     let baselineY: CGFloat
@@ -43,7 +44,7 @@ struct Metrics {
 
     static let fontName = "Courier New" as CFString
 
-    init(size: CGSize, variant v: HardwareVariant, columns: Int = 72) {
+    init(size: CGSize, columns: Int = 72) {
         self.size = size
         self.columns = columns
         let targetWidth = min(size.width * 0.6, 1100)
@@ -57,25 +58,27 @@ struct Metrics {
         lineHeight = (fontSize * 1.6).rounded()
         left = ((size.width - CGFloat(columns) * charWidth) / 2).rounded()
 
-        let r = v.railReg
+        typealias C = CarriageGeometry
+        typealias R = RailGeometry
         xHeight = CTFontGetXHeight(font)
-        let capHeight = CTFontGetCapHeight(font)
-        bandHeight = min(85, max(65, (size.height * 0.085).rounded()))
-        grooveTopY = bandHeight * (1 - CGFloat((r.grooveTop - r.top) / (r.bottom - r.top)))
-        carriageWidth = (charWidth * 7).rounded()
-        carriageHeight = (charWidth * 1.6).rounded()
-        carriageBottomY = bandHeight - 1
-        carriageTopY = carriageBottomY + carriageHeight
-        printY = carriageTopY
-        lampOffsetX = -(charWidth * 2.5).rounded()
-        // The current line sits right above the block; descenders keep a small gap.
-        baselineY = (carriageTopY + descent + 3).rounded()
+        // The fin covers exactly one character cell; everything else follows from that scale.
+        assetScale = (charWidth + 2) / (C.finRight - C.finLeft)
+        let s = assetScale
+        bandHeight = ((R.bottom - R.top) * s).rounded()
+        grooveTopY = bandHeight - (R.grooveTop - R.top) * s
+        // The carriage stands on the rail; its lower edge reaches down to the groove.
+        carriageBottomY = bandHeight - (R.grooveBottom - R.top) * s
+        printY = carriageBottomY + (C.bodyBottom - C.bodyTop) * s
+        carriageFrame = CGRect(x: -C.finCenter * s, y: -(C.canvas.height - C.bodyTop) * s,
+                               width: C.canvas.width * s, height: C.canvas.height * s)
+        carriageWidth = (C.bodyRight - C.bodyLeft) * s
+        carriageCenterOffset = ((C.bodyLeft + C.bodyRight) / 2 - C.finCenter) * s
+        lampOffsetX = ((C.lampStart.x + C.lampEnd.x) / 2 - C.finCenter) * s
+        lampHalfLength = (C.lampEnd.x - C.lampStart.x) / 2 * s
+        // The current line sits right above the body; descenders keep a small gap.
+        baselineY = (printY + descent + 3).rounded()
         baseline = (lineHeight * 0.32).rounded()
         typingY = baselineY - baseline
-        // The element covers the whole cell of the next character, from the block up to above the capitals.
-        elementWidth = (charWidth + 3).rounded()
-        elementBottomY = carriageTopY - 4
-        elementTopY = (baselineY + max(capHeight, ascent * 0.8) + 3).rounded()
     }
 
     private static func advance(of font: CTFont) -> CGFloat {
@@ -260,6 +263,8 @@ final class PaperScene {
     private let lipHighlight = CAGradientLayer()
     private let grooveHighlight = CAGradientLayer()
     private let lampBloom = CAGradientLayer()
+    private let lampLayer = CALayer()
+    private let statusLayer = CALayer()
     /// Short heat pulse of the ceramic print head when it prints or erases.
     private let heatPulse = CAGradientLayer()
     /// Cells whose glyph is still developing or fading, per line.
@@ -332,62 +337,84 @@ final class PaperScene {
         applyLightTint()
     }
 
-    /// The head group. Its origin is the print point, so block, element, shadows and the light share one position.
+    /// The head group. Its origin is the print point (center of the fin, top of the body),
+    /// so carriage, overlays, shadows and the light share one position.
     private func setupHead() {
         let m = metrics
         head.bounds = .zero
         head.position = CGPoint(x: m.printX(caretCol: 0), y: m.printY)
         let bottom = m.carriageBottomY - m.printY
 
-        // Contact shadow on the guide: narrow, dark and soft.
+        // Contact shadow on the rail: narrow, dark and soft.
         let contact = CAGradientLayer()
         contact.type = .radial
-        contact.colors = [CGColor(gray: 0, alpha: 0.45), CGColor(gray: 0, alpha: 0.18), CGColor(gray: 0, alpha: 0)]
+        contact.colors = [CGColor(gray: 0, alpha: 0.4), CGColor(gray: 0, alpha: 0.15), CGColor(gray: 0, alpha: 0)]
         contact.locations = [0, 0.6, 1]
         contact.startPoint = CGPoint(x: 0.5, y: 0.5)
         contact.endPoint = CGPoint(x: 1, y: 1)
-        contact.bounds = CGRect(x: 0, y: 0, width: m.carriageWidth * 1.04, height: 5)
-        contact.position = CGPoint(x: 0, y: bottom - 0.5)
+        contact.bounds = CGRect(x: 0, y: 0, width: m.carriageWidth * 1.03, height: 5)
+        contact.position = CGPoint(x: m.carriageCenterOffset, y: bottom - 0.5)
         head.addSublayer(contact)
 
-        // The white thermal element. It stands behind the front of the block and covers the next cell.
-        let element = ThermalElementLayer()
-        element.contentsScale = scale
-        element.frame = CGRect(x: -m.elementWidth / 2, y: m.elementBottomY - m.printY,
-                               width: m.elementWidth, height: m.elementTopY - m.elementBottomY)
-        element.shadowColor = CGColor(gray: 0, alpha: 1)
-        element.shadowOpacity = 0.18
-        element.shadowRadius = 2.5
-        element.shadowOffset = CGSize(width: 1, height: -1)
-        element.setNeedsDisplay()
-        head.addSublayer(element)
+        func layer(_ image: CGImage) -> CALayer {
+            let l = CALayer()
+            l.contents = image
+            l.contentsGravity = .resize
+            l.frame = m.carriageFrame
+            return l
+        }
 
-        // The metal block, in the color of the rail.
-        let block = MetalBlockLayer()
-        block.color = Self.averageColor(of: variant.rail)
-        block.contentsScale = scale
-        block.frame = CGRect(x: -m.carriageWidth / 2, y: bottom, width: m.carriageWidth, height: m.carriageHeight)
-        block.shadowColor = CGColor(gray: 0, alpha: 1)
-        block.shadowOpacity = 0.16
-        block.shadowRadius = 4
-        block.shadowOffset = CGSize(width: 0, height: -2)
-        block.setNeedsDisplay()
-        head.addSublayer(block)
+        // The carriage with a soft ambient shadow from its own contour.
+        let body = layer(variant.carriage)
+        body.shadowColor = CGColor(gray: 0, alpha: 1)
+        body.shadowOpacity = 0.16
+        body.shadowRadius = 4
+        body.shadowOffset = CGSize(width: 0, height: -2)
+        head.addSublayer(body)
+        head.addSublayer(makeGrille())
+
+        // Light layers: the lamp strip follows the brightness, the status light flashes when a character is made.
+        lampLayer.contents = variant.lamp
+        lampLayer.contentsGravity = .resize
+        lampLayer.frame = m.carriageFrame
+        head.addSublayer(lampLayer)
+        statusLayer.contents = variant.status
+        statusLayer.contentsGravity = .resize
+        statusLayer.frame = m.carriageFrame
+        statusLayer.opacity = 0.35
+        head.addSublayer(statusLayer)
 
         root.addSublayer(head)
     }
 
-    /// The mean color of the brushed face of the rail, used for the prototype block.
-    private static func averageColor(of image: CGImage) -> (r: CGFloat, g: CGFloat, b: CGFloat) {
-        var px = [UInt8](repeating: 0, count: 4)
-        let mid = CGRect(x: image.width / 4, y: image.height / 2, width: image.width / 2, height: 4)
-        guard let crop = image.cropping(to: mid),
-              let ctx = CGContext(data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return (0.8, 0.8, 0.8) }
-        ctx.interpolationQuality = .medium
-        ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-        return (CGFloat(px[0]) / 255, CGFloat(px[1]) / 255, CGFloat(px[2]) / 255)
+    /// A fine speaker grille in the left part of the body, made from the single hole image.
+    private func makeGrille() -> CALayer {
+        let m = metrics
+        typealias C = CarriageGeometry
+        let s = m.assetScale
+        let host = CALayer()
+        host.frame = m.carriageFrame
+        let pitch: CGFloat = 2.6, hole: CGFloat = 1.3
+        let left = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.09) * s
+        let right = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.38) * s
+        let midY = (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s - 0.5
+        let rows = 4
+        let cols = Int((right - left) / pitch)
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let h = CALayer()
+                h.contents = variant.grilleHole
+                h.contentsGravity = .resize
+                // The hole image has a rim; its inner hole is about 60 % of the canvas.
+                let d = hole / 0.62
+                h.frame = CGRect(x: left + CGFloat(col) * pitch - d / 2,
+                                 y: midY + (CGFloat(row) - CGFloat(rows - 1) / 2) * pitch - d / 2, width: d, height: d)
+                host.addSublayer(h)
+            }
+        }
+        host.shouldRasterize = true
+        host.rasterizationScale = scale
+        return host
     }
 
     func setHint(_ text: String) { hintLayer.string = text }
@@ -403,11 +430,12 @@ final class PaperScene {
     /// The lamp also lights its surroundings: a warm spill on the band next to the carriage,
     /// a specular highlight on the polished lip and a thin one on the lower edge of the groove.
     private func setupBandLight() {
-        let m = metrics, r = variant.railReg
-        func bandY(_ v: Double) -> CGFloat { m.bandHeight * (1 - CGFloat((v - r.top) / (r.bottom - r.top))) }
-        let lipY = bandY((r.top + r.grooveTop) / 2)
-        let lipHeight = max(2, bandY(r.top) - bandY(r.grooveTop))
-        let grooveBottomY = bandY(r.grooveBottom)
+        let m = metrics
+        typealias R = RailGeometry
+        func bandY(_ v: CGFloat) -> CGFloat { m.bandHeight - (v - R.top) * m.assetScale }
+        let lipY = bandY((R.top + R.grooveTop) / 2)
+        let lipHeight = max(2, bandY(R.top) - bandY(R.grooveTop))
+        let grooveBottomY = bandY(R.grooveBottom)
         let w = m.carriageWidth
         bandLight.bounds = .zero
         bandLight.position = CGPoint(x: m.printX(caretCol: 0), y: 0)
@@ -447,10 +475,20 @@ final class PaperScene {
         }
     }
 
+    /// The status light flashes when a character is made.
+    func flashStatus() {
+        let a = CAKeyframeAnimation(keyPath: "opacity")
+        a.values = [0.35, 1, 1, 0.35]
+        a.keyTimes = [0, 0.1, 0.4, 1]
+        a.duration = 0.5
+        statusLayer.add(a, forKey: "flash")
+    }
+
     /// The reflexes use the light color and fade out with the brightness.
     private func applyLightTint() {
         let c = lightSettings.color
         let k = min(1, lightSettings.brightness)
+        lampLayer.opacity = Float(min(1, lightSettings.brightness))
         func warm(_ a: Double) -> CGColor { CGColor(srgbRed: c.r, green: c.g * 0.92, blue: c.b * 0.75, alpha: a) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -702,21 +740,15 @@ final class PaperScene {
         return ctx.makeImage()
     }
 
-    /// The housing band: the whole rail band of the asset (lip, dark groove, brushed surface),
-    /// scaled evenly to the band height so it keeps the look of the asset, and stretched to the full width.
-    /// The surface is brushed horizontally, so the horizontal stretch does not show.
+    /// The rail band at the bottom: the rail image at the carriage scale, stretched to the full width.
+    /// Its surfaces run horizontally, so the horizontal stretch does not show.
     private static func makeBandImage(variant v: HardwareVariant, metrics m: Metrics, scale: CGFloat) -> CGImage? {
-        let r = v.railReg
-        let rail = v.rail
         let w = Int(m.size.width * scale), h = Int(m.bandHeight * scale)
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.interpolationQuality = .high
-        let top = Int((r.top * r.height).rounded()), bottom = Int((r.bottom * r.height).rounded())
-        // Skip the transparent crop margin at both ends.
-        guard let band = rail.cropping(to: CGRect(x: 8, y: top, width: rail.width - 16, height: bottom - top + 1)) else { return nil }
-        ctx.draw(band, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(v.rail, in: CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
     }
 
@@ -731,8 +763,11 @@ final class PaperScene {
         let w = Int(W * 2 / step), h = Int(paperH / step)
         var px = [UInt8](repeating: 0, count: w * h * 4)
         var rng = SplitMix64(seed: 7)
-        let apexY = Double(m.printY - m.bandHeight)
         let half = s.spread / 2 * .pi / 180
+        // The lamp is a strip along the top edge of the body. A virtual apex below the strip makes the beam
+        // as wide as the strip where it leaves the body. Below the top edge of the body there is no light.
+        let depth = Double(m.lampHalfLength) / max(0.2, tan(half))
+        let apexY = Double(m.printY - m.bandHeight) - depth
         let soft = max(0.01, s.softness * half)
         let reach = max(1, s.reach * paperH)
         let cw = Double(m.charWidth)
@@ -766,7 +801,7 @@ final class PaperScene {
                     // The edge gets softer with distance, like a real penumbra. It is never narrower
                     // than about 2 pt, so it never shows the pixel grid.
                     let edge = max(soft * min(1, 0.25 + d / (0.5 * paperH)), 2 / max(d, 1))
-                    beam = 1 - smooth(half - edge, half + edge, angle)
+                    beam = (1 - smooth(half - edge, half + edge, angle)) * smooth(depth - 1.5, depth + 1.5, v)
                 }
                 let falloff = exp(-(d / reach) * (d / reach))
                 // A focused pool of light on the freshly printed character, one cell left of the element.
