@@ -9,12 +9,7 @@ enum ThermalSynth {
     static func make(_ kind: SoundEngine.Kind, format: AVAudioFormat) -> [AVAudioPCMBuffer] {
         switch kind {
         case .key:
-            return (0..<5).map { i in
-                var s = mix(tap(seed: UInt64(10 + i), pitch: 1 + Double(i) * 0.03), at: 0,
-                            with: purr(duration: 0.05, seed: UInt64(20 + i), level: 0.35), offset: 0.01)
-                normalize(&s, peak: 0.42)
-                return buffer(s, format)
-            }
+            return (0..<5).map { i in buffer(printSound(variant: PrintSound.current, index: i), format) }
         case .space:
             return (0..<3).map { i in
                 var s = purr(duration: 0.07, seed: UInt64(40 + i), level: 1)
@@ -42,6 +37,84 @@ enum ThermalSynth {
             return [buffer(s, format)]
         case .hum:
             return []
+        }
+    }
+
+    /// Candidate sounds for printing a character. The user picks one in the menu.
+    enum PrintSound: String, CaseIterable {
+        case softTick, felt, paperBrush, warmHiss, miniFeed
+
+        var title: String {
+            switch self {
+            case .softTick: return "Soft Tick"
+            case .felt: return "Felt"
+            case .paperBrush: return "Paper Brush"
+            case .warmHiss: return "Warm Hiss"
+            case .miniFeed: return "Mini Feed"
+            }
+        }
+
+        static var current: PrintSound {
+            get { PrintSound(rawValue: UserDefaults.standard.string(forKey: "printSound") ?? "") ?? .miniFeed }
+            set { UserDefaults.standard.set(newValue.rawValue, forKey: "printSound") }
+        }
+    }
+
+    static func printSound(variant: PrintSound, index i: Int) -> [Float] {
+        let seed = UInt64(10 + i)
+        var s: [Float]
+        var peak: Float
+        switch variant {
+        case .softTick:
+            s = tick(seed: seed, cutoff: 0.3, length: 0.012)
+            peak = 0.3
+        case .felt:
+            s = tap(seed: seed, pitch: 1 + Double(i) * 0.03)
+            peak = 0.38
+        case .paperBrush:
+            s = brush(duration: 0.03 + Double(i) * 0.002, seed: seed, cutoff: 0.12)
+            peak = 0.3
+        case .warmHiss:
+            s = brush(duration: 0.022, seed: seed, cutoff: 0.45, highPass: true)
+            peak = 0.12
+        case .miniFeed:
+            s = mix(glide(duration: 0.05 + Double(i) * 0.003, seed: seed), at: 0,
+                    with: tick(seed: seed + 100, cutoff: 0.18, length: 0.01), offset: 0.004)
+            peak = 0.32
+        }
+        normalize(&s, peak: peak)
+        return s
+    }
+
+    /// A very short, muffled tick without a tone.
+    private static func tick(seed: UInt64, cutoff: Double, length: Double) -> [Float] {
+        let n = Int((length + 0.01) * rate)
+        var rng = SplitMix64(seed: seed)
+        var lp1 = 0.0, lp2 = 0.0
+        return (0..<n).map { i in
+            let t = Double(i) / rate
+            let noise = rng.nextUnit() * 2 - 1
+            lp1 += (noise - lp1) * cutoff
+            lp2 += (lp1 - lp2) * cutoff
+            return Float(min(1, t / 0.0008) * lp2 * exp(-t / (length / 4)))
+        }
+    }
+
+    /// A short, soft burst of filtered noise, like a head brushing over paper.
+    private static func brush(duration: Double, seed: UInt64, cutoff: Double, highPass: Bool = false) -> [Float] {
+        let n = Int((duration + 0.01) * rate)
+        var rng = SplitMix64(seed: seed)
+        var lp1 = 0.0, lp2 = 0.0, slow = 0.0
+        return (0..<n).map { i in
+            let t = Double(i) / rate
+            let x = min(1, t / duration)
+            let env = sin(.pi * x) * (1 - x * 0.3)
+            let noise = rng.nextUnit() * 2 - 1
+            lp1 += (noise - lp1) * cutoff
+            lp2 += (lp1 - lp2) * cutoff
+            slow += (lp2 - slow) * 0.02
+            let v = highPass ? lp2 - slow : lp2
+            return Float(env * v)
         }
     }
 

@@ -59,6 +59,15 @@ final class SoundEngine {
                 if let f = try? AVAudioFile(forWriting: url, settings: b.format.settings) { try? f.write(from: b) }
             }
         }
+        // All print sound candidates, to compare them side by side.
+        for (n, v) in ThermalSynth.PrintSound.allCases.enumerated() {
+            let samples = ThermalSynth.printSound(variant: v, index: 0)
+            guard let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else { continue }
+            b.frameLength = AVAudioFrameCount(samples.count)
+            for ch in 0..<Int(format.channelCount) { for (i, x) in samples.enumerated() { b.floatChannelData![ch][i] = x } }
+            let url = dir.appendingPathComponent("print-\(n + 1)-\(v.rawValue).wav")
+            if let f = try? AVAudioFile(forWriting: url, settings: b.format.settings) { try? f.write(from: b) }
+        }
     }
 
     func start() {
@@ -110,6 +119,9 @@ final class SoundEngine {
     }
 
     // MARK: Loading
+
+    /// Reloads the sounds, for example after the print sound changed.
+    func reload() { loadSamples() }
 
     private func loadSamples() {
         buffers = [:]

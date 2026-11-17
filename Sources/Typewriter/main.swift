@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let recentMenu = NSMenu()
     private let colorMenu = NSMenu()
     private let styleMenu = NSMenu()
+    private let printMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ⌘^ : keycode 10 is the key left of "1" on ISO keyboards (German "^").
@@ -44,6 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         styleItem.submenu = styleMenu
         styleItem.indentationLevel = 1
         menu.addItem(styleItem)
+        let printItem = NSMenuItem(title: "Print Sound", action: nil, keyEquivalent: "")
+        printItem.submenu = printMenu
+        printItem.indentationLevel = 1
+        menu.addItem(printItem)
         if sounds.hasHum {
             let hum = NSMenuItem(title: "Motor Hum", action: #selector(toggleHum), keyEquivalent: "")
             hum.target = self
@@ -86,6 +91,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = st == sounds.style ? .on : .off
             styleMenu.addItem(item)
         }
+        printMenu.removeAllItems()
+        printMenu.autoenablesItems = false
+        for (i, v) in ThermalSynth.PrintSound.allCases.enumerated() {
+            let item = NSMenuItem(title: "\(i + 1). \(v.title)", action: #selector(selectPrintSound(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = i
+            item.state = v == ThermalSynth.PrintSound.current ? .on : .off
+            item.isEnabled = sounds.style == .thermal
+            printMenu.addItem(item)
+        }
         colorMenu.removeAllItems()
         for (i, c) in Hardware.ids.enumerated() {
             if i == 7 { colorMenu.addItem(.separator()) } // MacBook colors first, then MacBook Neo colors.
@@ -113,6 +128,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func selectColor(_ sender: NSMenuItem) { Hardware.currentID = Hardware.ids[sender.tag].id }
     @objc private func showLight() { LightPanel.shared.toggle() }
     @objc private func selectStyle(_ sender: NSMenuItem) { sounds.style = SoundEngine.Style.allCases[sender.tag] }
+    @objc private func selectPrintSound(_ sender: NSMenuItem) {
+        let v = ThermalSynth.PrintSound.allCases[sender.tag]
+        ThermalSynth.PrintSound.current = v
+        sounds.reload()
+        sounds.play(.key) // Let the user hear it right away.
+    }
     @objc private func toggleSound() { sounds.enabled.toggle() }
     @objc private func toggleHum() { sounds.humEnabled.toggle() }
     @objc private func showHistory() { NSWorkspace.shared.open(History.directory) }
