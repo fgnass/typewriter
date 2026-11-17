@@ -852,6 +852,16 @@ final class PaperScene {
         if let lip = slice(R.top, R.grooveTop) {
             ctx.draw(lip, in: CGRect(x: 0, y: (m.faceHeight + m.grooveHeight) * scale, width: W, height: m.lipHeight * scale))
         }
+        // The room light falls toward the middle, so the rail gets darker toward the screen edges.
+        let edge = CGColor(gray: 0.85, alpha: 1), mid = CGColor(gray: 1, alpha: 1)
+        if let vignette = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                     colors: [edge, mid, mid, edge] as CFArray, locations: [0, 0.4, 0.6, 1]) {
+            ctx.saveGState()
+            ctx.setBlendMode(.multiply)
+            ctx.clip(to: CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.drawLinearGradient(vignette, start: .zero, end: CGPoint(x: W, y: 0), options: [])
+            ctx.restoreGState()
+        }
         return ctx.makeImage()
     }
 
