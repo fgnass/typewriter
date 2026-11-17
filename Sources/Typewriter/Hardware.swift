@@ -24,8 +24,8 @@ enum CarriageGeometry {
     static let lampStart = CGPoint(x: 226, y: 503)
     static let lampEnd = CGPoint(x: 1134, y: 500)
     static let status = CGPoint(x: 1300, y: 578)
-    /// The lamp strip continues on the top of the foot right of the fin.
-    static let rightLampStart: CGFloat = 1378
+    /// The lamp strip runs on behind the fin; this is its visible part on the foot right of the fin.
+    static let rightLampStart: CGFloat = 1358
     static let rightLampEnd: CGFloat = 1545
 }
 

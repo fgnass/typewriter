@@ -38,9 +38,6 @@ struct Metrics {
     let lampOffsetX: CGFloat
     /// Half length of the lamp strip.
     let lampHalfLength: CGFloat
-    /// The second lamp segment on the foot right of the fin, relative to the print point.
-    let rightLampOffsetX: CGFloat
-    let rightLampHalfLength: CGFloat
     let xHeight: CGFloat
 
     let baselineY: CGFloat
@@ -93,10 +90,9 @@ struct Metrics {
                                width: C.canvas.width * s, height: C.canvas.height * s)
         carriageWidth = (C.bodyRight - C.bodyLeft) * s
         carriageCenterOffset = ((C.bodyLeft + C.bodyRight) / 2 - C.finCenter) * s
-        lampOffsetX = ((C.lampStart.x + C.lampEnd.x) / 2 - C.finCenter) * s
-        lampHalfLength = (C.lampEnd.x - C.lampStart.x) / 2 * s
-        rightLampOffsetX = ((C.rightLampStart + C.rightLampEnd) / 2 - C.finCenter) * s
-        rightLampHalfLength = (C.rightLampEnd - C.rightLampStart) / 2 * s
+        // One continuous lamp strip along the whole body; the fin stands in front of it.
+        lampOffsetX = ((C.lampStart.x + C.rightLampEnd) / 2 - C.finCenter) * s
+        lampHalfLength = (C.rightLampEnd - C.lampStart.x) / 2 * s
         // The current line sits above the body with some air below the descenders.
         baselineY = (printY + descent + charWidth * 0.8).rounded()
         baseline = (lineHeight * 0.32).rounded()
@@ -444,7 +440,7 @@ final class PaperScene {
         strip.shadowOffset = CGSize(width: 0, height: 3)
         lampLayer.addSublayer(strip)
         lampStrip = strip
-        // The strip continues on the foot right of the fin.
+        // The visible part of the strip right of the fin (the fin hides the part behind it).
         let rightStrip = CAGradientLayer()
         rightStrip.colors = strip.colors
         rightStrip.locations = [0, 0.08, 0.92, 1]
@@ -873,7 +869,6 @@ final class PaperScene {
         let axis = (x: sin(tilt), y: cos(tilt))
         // The lamp sits in the body, left of the print point.
         let lampX = Double(m.lampOffsetX)
-        let rightX = Double(m.rightLampOffsetX), rightHalf = Double(m.rightLampHalfLength)
         let poolY = Double(m.baselineY + m.xHeight / 2 - m.printY)
         let poolW = cw * 1.6, poolH = Double(m.lineHeight) * 0.9
         // A rosy, peach-colored light, as measured in the approved design.
@@ -890,8 +885,8 @@ final class PaperScene {
             let v = (Double(h - 1 - row) + 0.5) * step - apexY
             for col in 0..<w {
                 let pu0 = (Double(col) + 0.5) * step - W
-                // Beam from a strip segment: the strip point whose beam axis passes through this paper point,
-                // clamped to the segment. The brighter of the two segments wins.
+                // Beam from the strip: the strip point whose beam axis passes through this paper point,
+                // clamped to the strip.
                 func segmentBeam(_ center: Double, _ halfLen: Double) -> (beam: Double, d: Double) {
                     let sx = min(center + halfLen, max(center - halfLen, pu0 - v * axis.x / max(axis.y, 0.05)))
                     let u = pu0 - sx
@@ -905,17 +900,15 @@ final class PaperScene {
                     let edge = max(soft * min(1, 0.25 + d / (0.5 * paperH)), 2 / max(d, 1))
                     return ((1 - smooth(half - edge, half + edge, angle)) * smooth(depth - 1.5, depth + 1.5, v), d)
                 }
-                let left = segmentBeam(lampX, halfStrip)
-                let right = segmentBeam(rightX, rightHalf)
-                let (beam, d) = left.beam >= right.beam ? left : right
+                let (beam, d) = segmentBeam(lampX, halfStrip)
                 let falloff = exp(-(d / reach) * (d / reach))
                 // A focused pool of light on the freshly printed character, one cell left of the element.
                 let pu = pu0 + cw, pv = v - poolY
                 let pool = 0.55 * exp(-(pu * pu) / (2 * poolW * poolW) - (pv * pv) / (2 * poolH * poolH))
                 // The paper right above the lamp strip glows warm.
-                let su = min(max(0, abs(pu0 - lampX) - halfStrip), max(0, abs(pu0 - rightX) - rightHalf)), sv = v - depth
-                // Strongest around the fin, where both segments meet.
-                let nearFin = exp(-abs(pu0) / (halfStrip * 0.6))
+                let su = max(0, abs(pu0 - lampX) - halfStrip), sv = v - depth
+                // Strongest around the fin.
+                let nearFin = exp(-abs(pu0) / (halfStrip * 0.4))
                 let stripGlow = sv > -1 ? (0.35 + 0.65 * nearFin) * exp(-(su * su + sv * sv).squareRoot() / glowReach) * smooth(-1, 1, sv) : 0
                 let k = min(1, s.brightness * (beam * falloff + pool + stripGlow))
                 let i = (row * w + col) * 4
