@@ -909,7 +909,8 @@ final class PaperScene {
                 let su = max(0, abs(pu0 - lampX) - halfStrip), sv = v - depth
                 // Strongest around the fin.
                 let nearFin = exp(-abs(pu0) / (halfStrip * 0.4))
-                let stripGlow = sv > -1 ? (0.35 + 0.65 * nearFin) * exp(-(su * su + sv * sv).squareRoot() / glowReach) * smooth(-1, 1, sv) : 0
+                // The glow is light of the lamp, so it stays inside the beam.
+                let stripGlow = sv > -1 ? beam * (0.35 + 0.65 * nearFin) * exp(-(su * su + sv * sv).squareRoot() / glowReach) : 0
                 let k = min(1, s.brightness * (beam * falloff + pool + stripGlow))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
