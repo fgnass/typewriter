@@ -12,7 +12,8 @@ final class OverlayController: TypewriterViewDelegate {
     private var view: TypewriterView?
     private var previousApp: NSRunningApplication?
     private var focus: FocusState = .notEditable
-    private var draftWork: DispatchWorkItem?
+    /// The last page, for "Copy Last Page" in the menu. Only in memory.
+    private(set) var lastPage: String?
 
     init(sounds: SoundEngine) {
         self.sounds = sounds
@@ -29,7 +30,6 @@ final class OverlayController: TypewriterViewDelegate {
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         focus = Inserter.focusState(of: previousApp)
-        History.log("show: trusted=\(Inserter.isTrusted) target=\(previousApp?.bundleIdentifier ?? "none") focus=\(focus)")
 
         let hint: String
         switch focus {
@@ -52,7 +52,7 @@ final class OverlayController: TypewriterViewDelegate {
             HUD.show("Hardware assets are missing")
             return
         }
-        let model = TextModel(columns: 72, text: History.loadDraft() ?? "")
+        let model = TextModel(columns: 72, text: "")
         if let demo = ProcessInfo.processInfo.environment["TYPEWRITER_DEMO"] {
             // Debug aid: prefilled text to check the look. A "~" is typed and removed again with the correction tape.
             for part in demo.split(separator: "~", omittingEmptySubsequences: false).enumerated() {
@@ -85,7 +85,6 @@ final class OverlayController: TypewriterViewDelegate {
         guard let w = window else { return }
         window = nil
         view = nil
-        draftWork?.cancel()
         sounds.stopHum()
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.2
@@ -106,8 +105,7 @@ final class OverlayController: TypewriterViewDelegate {
 
     func typewriterViewDidCommit(_ view: TypewriterView) {
         let text = view.model.text
-        History.save(text)
-        History.clearDraft()
+        remember(text)
         let focus = self.focus
         sounds.play(.key, volume: 0.6) // A short, light click instead of a long carriage return.
         close {
@@ -115,7 +113,6 @@ final class OverlayController: TypewriterViewDelegate {
             switch focus {
             case .editable:
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    History.log("paste: frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
                     Inserter.paste(text)
                 }
             case .notEditable, .unknown:
@@ -126,17 +123,15 @@ final class OverlayController: TypewriterViewDelegate {
     }
 
     func typewriterViewDidDiscard(_ view: TypewriterView) {
-        History.save(view.model.text)
-        History.clearDraft()
+        remember(view.model.text)
         close {}
     }
 
-    func typewriterViewDidChange(_ view: TypewriterView) {
-        draftWork?.cancel()
-        let text = view.model.text
-        let work = DispatchWorkItem { History.saveDraft(text) }
-        draftWork = work
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5, execute: work)
+    func typewriterViewDidChange(_ view: TypewriterView) {}
+
+    /// Only the last page is kept, and only in memory: nothing typed is ever written to disk.
+    private func remember(_ text: String) {
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lastPage = text }
     }
 }
 

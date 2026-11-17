@@ -6,7 +6,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var overlay = OverlayController(sounds: sounds)
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
-    private let recentMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ⌘^ : keycode 10 is the key left of "1" on ISO keyboards (German "^").
@@ -27,9 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "Typewriter")
+        statusItem.button?.image = Self.menuBarIcon()
         let menu = NSMenu()
         menu.delegate = self
+        menu.autoenablesItems = false
         let open = NSMenuItem(title: "Open Typewriter", action: #selector(openTypewriter), keyEquivalent: "^")
         open.keyEquivalentModifierMask = .command
         open.target = self
@@ -38,12 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.target = self
         menu.addItem(settings)
         menu.addItem(.separator())
-        let recent = NSMenuItem(title: "Recent Pages", action: nil, keyEquivalent: "")
-        recent.submenu = recentMenu
-        menu.addItem(recent)
-        let folder = NSMenuItem(title: "Show History Folder", action: #selector(showHistory), keyEquivalent: "")
-        folder.target = self
-        menu.addItem(folder)
+        let last = NSMenuItem(title: "Copy Last Page", action: #selector(copyLastPage), keyEquivalent: "")
+        last.target = self
+        last.tag = 1
+        menu.addItem(last)
         if !Inserter.isTrusted {
             let ax = NSMenuItem(title: "Allow Accessibility…", action: #selector(requestAccess), keyEquivalent: "")
             ax.target = self
@@ -57,27 +55,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         if Inserter.isTrusted, let ax = menu.item(withTag: 2) { menu.removeItem(ax) }
-        recentMenu.removeAllItems()
-        let pages = History.recent()
-        if pages.isEmpty {
-            recentMenu.addItem(NSMenuItem(title: "No pages yet", action: nil, keyEquivalent: ""))
+        menu.item(withTag: 1)?.isEnabled = overlay.lastPage != nil
+    }
+
+    /// A serif capital T as a template image, so the menu bar tints it.
+    private static func menuBarIcon() -> NSImage {
+        let base = NSFont.systemFont(ofSize: 17, weight: .semibold)
+        let font = base.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: 17) } ?? base
+        let text = NSAttributedString(string: "T", attributes: [.font: font, .foregroundColor: NSColor.black])
+        let glyph = text.size()
+        let size = NSSize(width: ceil(glyph.width) + 2, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            text.draw(at: NSPoint(x: (size.width - glyph.width) / 2, y: (size.height - glyph.height) / 2 + 0.5))
+            return true
         }
-        for page in pages {
-            let item = NSMenuItem(title: page.preview, action: #selector(copyPage(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = page.url
-            item.toolTip = "Copy to clipboard"
-            recentMenu.addItem(item)
-        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Typewriter"
+        return image
     }
 
     @objc private func openTypewriter() { overlay.show() }
     @objc private func showSettings() { SettingsPanel.shared.toggle() }
-    @objc private func showHistory() { NSWorkspace.shared.open(History.directory) }
     @objc private func requestAccess() { Inserter.requestTrust() }
 
-    @objc private func copyPage(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+    @objc private func copyLastPage() {
+        guard let text = overlay.lastPage else { return }
         Inserter.copyToClipboard(text)
         HUD.show("Copied to clipboard")
     }
