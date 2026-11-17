@@ -78,9 +78,9 @@ struct Metrics {
         // reaches down over the groove onto the face of the rail.
         let originalBodyHeight = (C.bodyBottom - C.bodyExtension - C.bodyTop) * s
         let bodyHeight = (C.bodyBottom - C.bodyTop) * s
-        lipHeight = (originalBodyHeight * 0.45).rounded()
-        grooveHeight = (originalBodyHeight * 0.19).rounded()
-        faceHeight = (originalBodyHeight * 0.75).rounded()
+        lipHeight = (originalBodyHeight * 0.55).rounded()
+        grooveHeight = (originalBodyHeight * 0.3).rounded()
+        faceHeight = (originalBodyHeight * 0.85).rounded()
         railScale = lipHeight / (R.grooveTop - R.top)
         bandHeight = lipHeight + grooveHeight + faceHeight
         grooveTopY = faceHeight + grooveHeight
@@ -843,8 +843,13 @@ final class PaperScene {
             rail.cropping(to: CGRect(x: 0, y: y0 - R.top, width: CGFloat(rail.width), height: y1 - y0))
         }
         let W = CGFloat(w)
-        if let face = slice(R.grooveBottom, R.bottom) {
+        let highlightRows = CGFloat(RailGeometry.highlightSourceRows.count)
+        if let face = slice(R.grooveBottom + highlightRows, R.bottom) {
             ctx.draw(face, in: CGRect(x: 0, y: 0, width: W, height: m.faceHeight * scale))
+        }
+        // The fine highlight on the lower edge of the groove, always 1 pt high so it stays visible.
+        if let highlight = slice(R.grooveBottom, R.grooveBottom + highlightRows) {
+            ctx.draw(highlight, in: CGRect(x: 0, y: (m.faceHeight - 1) * scale, width: W, height: scale))
         }
         if let groove = slice(R.grooveTop, R.grooveBottom) {
             ctx.draw(groove, in: CGRect(x: 0, y: m.faceHeight * scale, width: W, height: m.grooveHeight * scale))
