@@ -29,6 +29,7 @@ final class OverlayController: TypewriterViewDelegate {
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         focus = Inserter.focusState(of: previousApp)
+        History.log("show: trusted=\(Inserter.isTrusted) target=\(previousApp?.bundleIdentifier ?? "none") focus=\(focus)")
 
         let hint: String
         switch focus {
@@ -113,7 +114,10 @@ final class OverlayController: TypewriterViewDelegate {
             guard !text.isEmpty else { return }
             switch focus {
             case .editable:
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Inserter.paste(text) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    History.log("paste: frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
+                    Inserter.paste(text)
+                }
             case .notEditable, .unknown:
                 Inserter.copyToClipboard(text)
                 HUD.show("Copied to clipboard")

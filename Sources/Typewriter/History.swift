@@ -31,6 +31,19 @@ enum History {
             }
     }
 
+    /// Appends a line to a small diagnostic log next to the history.
+    static func log(_ line: String) {
+        let url = directory.deletingLastPathComponent().appendingPathComponent("debug.log")
+        let entry = "\(Date()) \(line)\n"
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile()
+            h.write(entry.data(using: .utf8)!)
+            try? h.close()
+        } else {
+            try? entry.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     static func saveDraft(_ text: String) {
         try? text.write(to: draftURL, atomically: true, encoding: .utf8)
     }
