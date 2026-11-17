@@ -15,24 +15,22 @@ struct Metrics {
     let descent: CGFloat
     let left: CGFloat
 
-    /// Points per pixel of the hardware images.
-    let assetScale: CGFloat
     /// Height of the housing band at the bottom.
     let bandHeight: CGFloat
     /// Top of the dark guide groove in the band.
     let grooveTopY: CGFloat
-    /// Bottom of the visible carriage body, where it stands on the guide.
+    /// The metal block of the carriage.
+    let carriageWidth: CGFloat
+    let carriageHeight: CGFloat
     let carriageBottomY: CGFloat
-    /// Size of the whole carriage image.
-    let carriageSize: CGSize
-    /// The print point inside the carriage image, from its bottom left corner.
-    let printOffset: CGPoint
-    /// Height of the print point: the top of the ceramic insert. The light starts here.
+    let carriageTopY: CGFloat
+    /// The white thermal element that sticks out of the block and covers the cell of the next character.
+    let elementWidth: CGFloat
+    let elementBottomY: CGFloat
+    let elementTopY: CGFloat
+    /// Where the lamp light starts: the top of the block, at the element.
     let printY: CGFloat
-    let ceramicWidth: CGFloat
-    let visibleCarriageWidth: CGFloat
-    /// Center of the visible carriage body relative to the print point.
-    let carriageCenterOffset: CGFloat
+    let xHeight: CGFloat
 
     let baselineY: CGFloat
     /// Bottom of the current line layer.
@@ -57,23 +55,24 @@ struct Metrics {
         lineHeight = (fontSize * 1.6).rounded()
         left = ((size.width - CGFloat(columns) * charWidth) / 2).rounded()
 
-        let c = v.carriageReg, r = v.railReg
-        visibleCarriageWidth = min(180, max(140, size.width * 0.115))
-        assetScale = visibleCarriageWidth / CGFloat((c.right - c.left) * c.width)
+        let r = v.railReg
+        xHeight = CTFontGetXHeight(font)
+        let capHeight = CTFontGetCapHeight(font)
         bandHeight = min(85, max(65, (size.height * 0.085).rounded()))
         grooveTopY = bandHeight * (1 - CGFloat((r.grooveTop - r.top) / (r.bottom - r.top)))
+        carriageWidth = (charWidth * 7).rounded()
+        carriageHeight = (charWidth * 1.6).rounded()
         carriageBottomY = bandHeight - 1
-        carriageSize = CGSize(width: CGFloat(c.width) * assetScale, height: CGFloat(c.height) * assetScale)
-        printOffset = CGPoint(x: CGFloat(c.printX) * carriageSize.width, y: CGFloat(1 - c.printY) * carriageSize.height)
-        let bottomOffset = CGFloat(1 - c.bottom) * carriageSize.height
-        printY = carriageBottomY + (printOffset.y - bottomOffset)
-        ceramicWidth = CGFloat(c.ceramicRight - c.ceramicLeft) * carriageSize.width
-        carriageCenterOffset = CGFloat((c.left + c.right) / 2 - c.printX) * carriageSize.width
-
-        // Descenders must not touch the ceramic.
-        baselineY = (printY + descent + 3).rounded()
+        carriageTopY = carriageBottomY + carriageHeight
+        printY = carriageTopY
+        // The current line sits right above the block; descenders keep a small gap.
+        baselineY = (carriageTopY + descent + 3).rounded()
         baseline = (lineHeight * 0.32).rounded()
         typingY = baselineY - baseline
+        // The element covers the whole cell of the next character, from the block up to above the capitals.
+        elementWidth = (charWidth + 3).rounded()
+        elementBottomY = carriageTopY - 4
+        elementTopY = (baselineY + max(capHeight, ascent * 0.8) + 3).rounded()
     }
 
     private static func advance(of font: CTFont) -> CGFloat {
@@ -153,6 +152,62 @@ final class LineLayer: CALayer {
         ctx.setFillColor(CGColor(gray: Palette.ink, alpha: alpha))
         ctx.textPosition = CGPoint(x: x, y: y)
         CTLineDraw(ctLine(for: c), ctx)
+    }
+}
+
+/// Prototype of the white ceramic thermal element: a slim upright tab with a rounded top.
+final class ThermalElementLayer: CALayer {
+    override func action(forKey event: String) -> CAAction? { NSNull() }
+
+    override func draw(in ctx: CGContext) {
+        let b = bounds
+        let r = min(b.width * 0.35, 4)
+        let path = CGPath(roundedRect: b, cornerWidth: r, cornerHeight: r, transform: nil)
+        ctx.addPath(path)
+        ctx.clip()
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        // Matte ceramic: slightly darker at the bottom where it enters the block, soft roundness at the sides.
+        let vertical = CGGradient(colorsSpace: cs, colors: [
+            CGColor(srgbRed: 0.86, green: 0.85, blue: 0.83, alpha: 1),
+            CGColor(srgbRed: 0.96, green: 0.955, blue: 0.94, alpha: 1),
+            CGColor(srgbRed: 0.985, green: 0.98, blue: 0.97, alpha: 1),
+        ] as CFArray, locations: [0, 0.3, 1])!
+        ctx.drawLinearGradient(vertical, start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
+        let sides = CGGradient(colorsSpace: cs, colors: [
+            CGColor(gray: 0, alpha: 0.12), CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.16),
+        ] as CFArray, locations: [0, 0.3, 0.7, 1])!
+        ctx.drawLinearGradient(sides, start: CGPoint(x: b.minX, y: 0), end: CGPoint(x: b.maxX, y: 0), options: [])
+        ctx.addPath(path)
+        ctx.setStrokeColor(CGColor(gray: 0.55, alpha: 0.35))
+        ctx.setLineWidth(0.5)
+        ctx.strokePath()
+    }
+}
+
+/// Prototype of the metal carriage block: anodized aluminum with a soft vertical shading and polished chamfers.
+final class MetalBlockLayer: CALayer {
+    var color: (r: CGFloat, g: CGFloat, b: CGFloat) = (0.8, 0.8, 0.8)
+
+    override func action(forKey event: String) -> CAAction? { NSNull() }
+
+    override func draw(in ctx: CGContext) {
+        let b = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let r: CGFloat = 3
+        let path = CGPath(roundedRect: b, cornerWidth: r, cornerHeight: r, transform: nil)
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        func c(_ f: CGFloat) -> CGColor { CGColor(srgbRed: min(1, color.r * f), green: min(1, color.g * f), blue: min(1, color.b * f), alpha: 1) }
+        func lifted(_ t: CGFloat) -> CGColor {
+            CGColor(srgbRed: color.r + (1 - color.r) * t, green: color.g + (1 - color.g) * t, blue: color.b + (1 - color.b) * t, alpha: 1)
+        }
+        ctx.addPath(path)
+        ctx.clip()
+        let g = CGGradient(colorsSpace: cs, colors: [c(0.78), c(0.92), c(1.02), lifted(0.15)] as CFArray, locations: [0, 0.35, 0.75, 1])!
+        ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: b.minY), end: CGPoint(x: 0, y: b.maxY), options: [])
+        // Polished chamfer along the top edge, darker one along the bottom.
+        ctx.setFillColor(lifted(0.6))
+        ctx.fill(CGRect(x: b.minX, y: b.maxY - 1.2, width: b.width, height: 1.2))
+        ctx.setFillColor(c(0.6))
+        ctx.fill(CGRect(x: b.minX, y: b.minY, width: b.width, height: 0.8))
     }
 }
 
@@ -274,13 +329,11 @@ final class PaperScene {
         applyLightTint()
     }
 
-    /// The head group. Its origin is the print point, so carriage, shadows, reflexes and the light share one position.
+    /// The head group. Its origin is the print point, so block, element, shadows and the light share one position.
     private func setupHead() {
         let m = metrics
         head.bounds = .zero
         head.position = CGPoint(x: m.printX(caretCol: 0), y: m.printY)
-        let carriageFrame = CGRect(x: -m.printOffset.x, y: -m.printOffset.y,
-                                   width: m.carriageSize.width, height: m.carriageSize.height)
         let bottom = m.carriageBottomY - m.printY
 
         // Contact shadow on the guide: narrow, dark and soft.
@@ -290,61 +343,48 @@ final class PaperScene {
         contact.locations = [0, 0.6, 1]
         contact.startPoint = CGPoint(x: 0.5, y: 0.5)
         contact.endPoint = CGPoint(x: 1, y: 1)
-        contact.bounds = CGRect(x: 0, y: 0, width: m.visibleCarriageWidth * 1.04, height: 5)
-        contact.position = CGPoint(x: m.carriageCenterOffset, y: bottom - 0.5)
+        contact.bounds = CGRect(x: 0, y: 0, width: m.carriageWidth * 1.04, height: 5)
+        contact.position = CGPoint(x: 0, y: bottom - 0.5)
         head.addSublayer(contact)
 
-        // Faint warm reflex on the guide close to the head.
-        railGlow.type = .radial
-        railGlow.startPoint = CGPoint(x: 0.5, y: 0.5)
-        railGlow.endPoint = CGPoint(x: 1, y: 1)
-        railGlow.bounds = CGRect(x: 0, y: 0, width: m.visibleCarriageWidth * 1.5, height: 4)
-        railGlow.position = CGPoint(x: 0, y: m.grooveTopY - m.printY + 1)
-        railGlow.compositingFilter = CIFilter(name: "CIScreenBlendMode")
-        head.addSublayer(railGlow)
+        // The white thermal element. It stands behind the front of the block and covers the next cell.
+        let element = ThermalElementLayer()
+        element.contentsScale = scale
+        element.frame = CGRect(x: -m.elementWidth / 2, y: m.elementBottomY - m.printY,
+                               width: m.elementWidth, height: m.elementTopY - m.elementBottomY)
+        element.shadowColor = CGColor(gray: 0, alpha: 1)
+        element.shadowOpacity = 0.18
+        element.shadowRadius = 2.5
+        element.shadowOffset = CGSize(width: 1, height: -1)
+        element.setNeedsDisplay()
+        head.addSublayer(element)
 
-        // Carriage with a soft ambient shadow, derived from its own contour.
-        carriage.contents = variant.carriage
-        carriage.contentsGravity = .resize
-        carriage.frame = carriageFrame
-        carriage.shadowColor = CGColor(gray: 0, alpha: 1)
-        carriage.shadowOpacity = 0.14
-        carriage.shadowRadius = 4
-        carriage.shadowOffset = CGSize(width: 0, height: -2)
-        head.addSublayer(carriage)
-
-        // Warm light on the ceramic and the inner edges of the notch, masked to the carriage.
-        let glowHost = CALayer()
-        glowHost.frame = carriageFrame
-        let mask = CALayer()
-        mask.contents = variant.carriage
-        mask.contentsGravity = .resize
-        mask.frame = glowHost.bounds
-        glowHost.mask = mask
-        ceramicGlow.type = .radial
-        ceramicGlow.startPoint = CGPoint(x: 0.5, y: 0.5)
-        ceramicGlow.endPoint = CGPoint(x: 1, y: 1)
-        ceramicGlow.bounds = CGRect(x: 0, y: 0, width: m.ceramicWidth * 1.9, height: m.ceramicWidth * 0.9)
-        ceramicGlow.position = CGPoint(x: m.printOffset.x, y: m.printOffset.y + 1)
-        glowHost.addSublayer(ceramicGlow)
-        glowHost.compositingFilter = CIFilter(name: "CIScreenBlendMode")
-        head.addSublayer(glowHost)
-
-        // The glow of the lamp itself, right at the print point.
-        radial(lampBloom, width: m.ceramicWidth * 2.4, height: m.ceramicWidth * 1.3)
-        lampBloom.position = CGPoint(x: 0, y: 1)
-        head.addSublayer(lampBloom)
-
-        radial(heatPulse, width: m.ceramicWidth * 1.6, height: m.ceramicWidth * 0.7)
-        heatPulse.position = CGPoint(x: 0, y: -1)
-        heatPulse.opacity = 0
-        heatPulse.colors = [CGColor(srgbRed: 1, green: 0.93, blue: 0.8, alpha: 1),
-                            CGColor(srgbRed: 1, green: 0.62, blue: 0.3, alpha: 0.45),
-                            CGColor(srgbRed: 1, green: 0.5, blue: 0.2, alpha: 0)]
-        heatPulse.locations = [0, 0.4, 1]
-        head.addSublayer(heatPulse)
+        // The metal block, in the color of the rail.
+        let block = MetalBlockLayer()
+        block.color = Self.averageColor(of: variant.rail)
+        block.contentsScale = scale
+        block.frame = CGRect(x: -m.carriageWidth / 2, y: bottom, width: m.carriageWidth, height: m.carriageHeight)
+        block.shadowColor = CGColor(gray: 0, alpha: 1)
+        block.shadowOpacity = 0.16
+        block.shadowRadius = 4
+        block.shadowOffset = CGSize(width: 0, height: -2)
+        block.setNeedsDisplay()
+        head.addSublayer(block)
 
         root.addSublayer(head)
+    }
+
+    /// The mean color of the brushed face of the rail, used for the prototype block.
+    private static func averageColor(of image: CGImage) -> (r: CGFloat, g: CGFloat, b: CGFloat) {
+        var px = [UInt8](repeating: 0, count: 4)
+        let mid = CGRect(x: image.width / 4, y: image.height / 2, width: image.width / 2, height: 4)
+        guard let crop = image.cropping(to: mid),
+              let ctx = CGContext(data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return (0.8, 0.8, 0.8) }
+        ctx.interpolationQuality = .medium
+        ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return (CGFloat(px[0]) / 255, CGFloat(px[1]) / 255, CGFloat(px[2]) / 255)
     }
 
     func setHint(_ text: String) { hintLayer.string = text }
@@ -365,7 +405,7 @@ final class PaperScene {
         let lipY = bandY((r.top + r.grooveTop) / 2)
         let lipHeight = max(2, bandY(r.top) - bandY(r.grooveTop))
         let grooveBottomY = bandY(r.grooveBottom)
-        let w = m.visibleCarriageWidth
+        let w = m.carriageWidth
         bandLight.bounds = .zero
         bandLight.position = CGPoint(x: m.printX(caretCol: 0), y: 0)
 
@@ -692,6 +732,9 @@ final class PaperScene {
         let half = s.spread / 2 * .pi / 180
         let soft = max(0.01, s.softness * half)
         let reach = max(1, s.reach * paperH)
+        let cw = Double(m.charWidth)
+        let poolY = Double(m.baselineY + m.xHeight / 2 - m.printY)
+        let poolW = cw * 1.6, poolH = Double(m.lineHeight) * 0.9
         let lc = s.color
         let amb = s.ambient
         // The ambient light is cool lavender, the lamp is warm.
@@ -715,8 +758,10 @@ final class PaperScene {
                     beam = 1 - smooth(half - edge, half + edge, angle)
                 }
                 let falloff = exp(-(d / reach) * (d / reach))
-                let hot = 0.35 * exp(-d / 16) * smooth(-8, 2, v)
-                let k = min(1, s.brightness * (beam * falloff + hot))
+                // A focused pool of light on the freshly printed character, one cell left of the element.
+                let pu = u + cw, pv = v - poolY
+                let pool = 0.55 * exp(-(pu * pu) / (2 * poolW * poolW) - (pv * pv) / (2 * poolH * poolH))
+                let k = min(1, s.brightness * (beam * falloff + pool))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
                 px[i] = q(mix(ambient.r, lc.r, k))

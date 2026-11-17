@@ -115,19 +115,13 @@ final class TypewriterView: NSView, NSTextInputClient {
             sounds.play(.bell)
         }
         refresh()
-        if let c = clean.last, let pos = model.layout.positions.last ?? nil {
-            scene.printGlyph(c, line: pos.line, col: pos.col)
-        }
         delegate?.typewriterViewDidChange(self)
     }
 
     private func backspace() {
-        let removed = model.chars.last
-        let pos = model.layout.positions.last ?? nil
         if model.deleteBackward() {
             sounds.play(.backspace)
             refresh()
-            if let c = removed, let pos { scene.eraseGlyph(c, line: pos.line, col: pos.col) }
             delegate?.typewriterViewDidChange(self)
         } else {
             NSSound.beep()
