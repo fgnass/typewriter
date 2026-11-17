@@ -286,6 +286,7 @@ final class PaperScene {
     private let lampLayer = CALayer()
     private let statusLayer = CALayer()
     private var lampStrip: CALayer?
+    private var lampEdges: [CAGradientLayer] = []
     /// Short heat pulse of the ceramic print head when it prints or erases.
     private let heatPulse = CAGradientLayer()
     /// Cells whose glyph is still developing or fading, per line.
@@ -456,6 +457,7 @@ final class PaperScene {
         rightStrip.shadowRadius = strip.shadowRadius
         rightStrip.shadowOffset = strip.shadowOffset
         lampLayer.addSublayer(rightStrip)
+        lampEdges = [strip, rightStrip]
         statusLayer.contents = variant.status
         statusLayer.contentsGravity = .resize
         statusLayer.frame = m.carriageFrame
@@ -569,6 +571,13 @@ final class PaperScene {
         let c = lightSettings.color
         let k = min(1, lightSettings.brightness)
         lampLayer.opacity = Float(min(1, lightSettings.brightness))
+        // The glowing lamp edge has the color of the light: nearly white in its core, its glow in the light color.
+        let core = CGColor(srgbRed: 1, green: 1 - (1 - c.g) * 0.3, blue: 1 - (1 - c.b) * 0.3, alpha: 1)
+        let fade = CGColor(srgbRed: 1, green: 1 - (1 - c.g) * 0.3, blue: 1 - (1 - c.b) * 0.3, alpha: 0)
+        for edge in lampEdges {
+            edge.colors = [fade, core, core, fade]
+            edge.shadowColor = CGColor(srgbRed: c.r, green: c.g * 0.92, blue: c.b * 0.8, alpha: 1)
+        }
         func warm(_ a: Double) -> CGColor { CGColor(srgbRed: c.r, green: c.g * 0.92, blue: c.b * 0.75, alpha: a) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -862,17 +871,13 @@ final class PaperScene {
         // Below the top edge of the body there is no light.
         let depth = 0.0
         let halfStrip = Double(m.lampHalfLength)
-        let glowReach = Double(m.charWidth) * 2.5
         let apexY = Double(m.printY - m.bandHeight)
         let soft = max(0.01, s.softness * half)
         let reach = max(1, s.reach * paperH)
-        let cw = Double(m.charWidth)
         let tilt = s.tilt * .pi / 180
         let axis = (x: sin(tilt), y: cos(tilt))
         // The lamp sits in the body, left of the print point.
         let lampX = Double(m.lampOffsetX)
-        let poolY = Double(m.baselineY + m.xHeight / 2 - m.printY)
-        let poolW = cw * 1.6, poolH = Double(m.lineHeight) * 0.9
         // A rosy, peach-colored light, as measured in the approved design.
         let lc = (r: s.color.r, g: s.color.g * 0.985, b: min(1, s.color.b * 1.04))
         let amb = s.ambient
@@ -904,23 +909,12 @@ final class PaperScene {
                 }
                 let (beam, d) = segmentBeam(lampX, halfStrip)
                 let falloff = exp(-(d / reach) * (d / reach))
-                // A focused pool of light on the freshly printed character, one cell left of the element.
-                let pu = pu0 + cw, pv = v - poolY
-                let pool = 0.55 * exp(-(pu * pu) / (2 * poolW * poolW) - (pv * pv) / (2 * poolH * poolH))
-                // The paper right above the lamp strip glows warm.
-                let su = max(0, abs(pu0 - lampX) - halfStrip), sv = v - depth
-                // Strongest around the fin.
-                let nearFin = exp(-abs(pu0) / (halfStrip * 0.4))
-                // The glow is light of the lamp, so it stays inside the beam.
-                let stripGlow = sv > -1 ? beam * (0.35 + 0.65 * nearFin) * exp(-(su * su + sv * sv).squareRoot() / glowReach) : 0
-                let k = min(1, s.brightness * (beam * falloff + pool + stripGlow))
+                let k = min(1, s.brightness * beam * falloff)
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
-                // Close to the lamp the light is warmer and more saturated.
-                let hot = min(1, stripGlow * s.brightness)
-                px[i] = q(mix(mix(ambient.r, lc.r, k), 1.0, hot))
-                px[i + 1] = q(mix(mix(ambient.g, lc.g, k), 0.91, hot))
-                px[i + 2] = q(mix(mix(ambient.b, lc.b, k), 0.79, hot))
+                px[i] = q(mix(ambient.r, lc.r, k))
+                px[i + 1] = q(mix(ambient.g, lc.g, k))
+                px[i + 2] = q(mix(ambient.b, lc.b, k))
                 px[i + 3] = 255
             }
         }

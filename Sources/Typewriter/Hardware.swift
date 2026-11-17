@@ -106,7 +106,8 @@ enum Hardware {
         let tintedCarriage = entry.color.map { tint(carriage, to: $0) ?? carriage } ?? carriage
         let tintedRail = entry.color.map { tint(railBand, to: $0) ?? railBand } ?? railBand
         // The front of the carriage faces the viewer and is a little darker than the rail.
-        let shaded = multiply(tintedCarriage, by: (0.92, 0.88, 0.9)) ?? tintedCarriage
+        // Neutral, so it does not shift the hue of any color.
+        let shaded = multiply(tintedCarriage, by: (0.9, 0.9, 0.9)) ?? tintedCarriage
         let v = HardwareVariant(id: id, title: entry.title,
                                 carriage: extend(shaded) ?? shaded,
                                 rail: tintedRail,
