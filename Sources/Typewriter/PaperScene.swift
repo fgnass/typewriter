@@ -366,11 +366,11 @@ final class PaperScene {
         // Contact shadow on the rail: narrow, dark and soft.
         let contact = CAGradientLayer()
         contact.type = .radial
-        contact.colors = [CGColor(gray: 0, alpha: 0.4), CGColor(gray: 0, alpha: 0.15), CGColor(gray: 0, alpha: 0)]
+        contact.colors = [CGColor(gray: 0, alpha: 0.55), CGColor(gray: 0, alpha: 0.22), CGColor(gray: 0, alpha: 0)]
         contact.locations = [0, 0.6, 1]
         contact.startPoint = CGPoint(x: 0.5, y: 0.5)
         contact.endPoint = CGPoint(x: 1, y: 1)
-        contact.bounds = CGRect(x: 0, y: 0, width: m.carriageWidth * 1.03, height: 5)
+        contact.bounds = CGRect(x: 0, y: 0, width: m.carriageWidth * 1.06, height: 8)
         contact.position = CGPoint(x: m.carriageCenterOffset, y: bottom - 0.5)
         head.addSublayer(contact)
 
@@ -385,9 +385,10 @@ final class PaperScene {
         // The carriage with a soft ambient shadow from its own contour.
         let body = layer(variant.carriage)
         body.shadowColor = CGColor(gray: 0, alpha: 1)
-        body.shadowOpacity = 0.16
-        body.shadowRadius = 4
-        body.shadowOffset = CGSize(width: 0, height: -2)
+        // The room light comes from the upper left, so the shadow falls to the lower right.
+        body.shadowOpacity = 0.38
+        body.shadowRadius = 5
+        body.shadowOffset = CGSize(width: 2.5, height: -2.5)
         head.addSublayer(body)
         head.addSublayer(makeGrille())
 
