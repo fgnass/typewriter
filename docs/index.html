@@ -66,11 +66,28 @@
   .btn.ghost { box-shadow: inset 0 0 0 1.5px var(--ink); }
   .req { margin-top: 14px; font-size: 0.9rem; color: var(--muted); }
 
-  .screen {
-    margin: 56px auto 0; max-width: 1040px; border-radius: 14px; overflow: hidden; position: relative;
-    box-shadow: 0 0 0 1px rgba(42, 37, 48, 0.08), 0 30px 80px rgba(60, 40, 80, 0.22), 0 8px 20px rgba(60, 40, 80, 0.1);
+  /* A MacBook Air (M1) in rose gold, drawn in CSS: lid with a thin metal edge, black bezel, 16:10 screen, base with the thumb notch. */
+  .mac { max-width: 960px; margin: 56px auto 0; position: relative; filter: drop-shadow(0 30px 40px rgba(60, 40, 80, 0.22)); }
+  .lid {
+    margin: 0 6.5%; padding: 0.55% 0.55% 0.35%; border-radius: 3.2% 3.2% 0.6% 0.6% / 4.6% 4.6% 0.9% 0.9%;
+    background: linear-gradient(180deg, #ecd0c3, #d9ad9d 60%, #c99a8a);
   }
-  .screen img { display: block; width: 100%; height: auto; }
+  .bezel { background: #0b0a0c; padding: 2.6% 2.6% 3.4%; border-radius: 2.7% 2.7% 0.4% 0.4% / 4% 4% 0.6% 0.6%; position: relative; }
+  .bezel::before { /* camera */
+    content: ""; position: absolute; top: 1.15%; left: 50%; width: 0.6%; aspect-ratio: 1; transform: translateX(-50%);
+    border-radius: 50%; background: #1d1c22; box-shadow: inset 0 0 0 1px #29282f;
+  }
+  .bezel img { display: block; width: 100%; height: auto; border-radius: 0.4%; }
+  .base { position: relative; height: 0; padding-bottom: 2.4%; }
+  .base::before { /* the base, with a slightly curved front edge */
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, #f2d8cc 0%, #e0b6a6 30%, #c5948a 75%, #a87a70 100%);
+    border-radius: 0 0 50% 50% / 0 0 100% 100%;
+  }
+  .base::after { /* thumb notch */
+    content: ""; position: absolute; top: 0; left: 50%; width: 13%; height: 38%; transform: translateX(-50%);
+    background: linear-gradient(180deg, #9c7066, #c3958a); border-radius: 0 0 16px 16px / 0 0 100% 100%; box-shadow: inset 0 1px 2px rgba(60, 30, 25, 0.35);
+  }
 
   /* ── Steps ── */
   .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; margin-top: 40px; }
@@ -149,7 +166,7 @@
     .sounds { grid-template-columns: repeat(2, 1fr); }
     section { padding: 56px 0; }
     .band { padding: 60px 16px; }
-    .screen { margin-top: 40px; border-radius: 10px; }
+    .mac { margin-top: 40px; }
   }
 </style>
 </head>
@@ -165,7 +182,7 @@
       <a class="btn ghost" href="https://github.com/fgnass/typewriter">Source on GitHub</a>
     </div>
     <div class="req">Free · macOS 13 or later · Apple silicon</div>
-    <div class="screen"><img src="img/page.jpg" width="1800" height="1125" alt="The whole screen is a sheet of paper. Three lines of typewriter text sit above a rose gold rail. A small carriage on the rail throws a warm cone of light onto the last line."></div>
+    <div class="mac"><div class="lid"><div class="bezel"><img src="img/page.jpg" width="1800" height="1125" alt="The whole screen is a sheet of paper. Three lines of typewriter text sit above a rose gold rail. A small carriage on the rail throws a warm cone of light onto the last line."></div></div><div class="base"></div></div>
   </header>
 
   <section>
