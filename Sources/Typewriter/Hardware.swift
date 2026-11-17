@@ -4,7 +4,12 @@ import ImageIO
 
 /// Positions in the carriage images (1774 × 887 px, origin top left). All carriage layers share this canvas.
 enum CarriageGeometry {
-    static let canvas = CGSize(width: 1774, height: 887)
+    /// The body is made taller than in the original images: a flat slice of its front is stretched.
+    static let bodyExtension: CGFloat = 100
+    /// Rows of the original image: the slice between them is stretched by `bodyExtension`.
+    static let stretchTop: CGFloat = 615
+    static let stretchBottom: CGFloat = 672
+    static let canvas = CGSize(width: 1774, height: 887 + bodyExtension)
     /// The straight part of the fin, which covers the cell of the next character.
     static let finLeft: CGFloat = 1223
     static let finRight: CGFloat = 1356
@@ -14,7 +19,7 @@ enum CarriageGeometry {
     static let bodyLeft: CGFloat = 178
     static let bodyRight: CGFloat = 1595
     static let bodyTop: CGFloat = 492
-    static let bodyBottom: CGFloat = 706
+    static let bodyBottom: CGFloat = 706 + bodyExtension
     /// The lamp strip along the top edge of the body.
     static let lampStart = CGPoint(x: 226, y: 503)
     static let lampEnd = CGPoint(x: 1134, y: 500)
@@ -86,10 +91,11 @@ enum Hardware {
         // The hardware sits in the dim, warm dusk of the room, so it is darker than the studio-lit images.
         let tintedCarriage = entry.color.map { tint(carriage, to: $0) ?? carriage } ?? carriage
         let tintedRail = entry.color.map { tint(railBand, to: $0) ?? railBand } ?? railBand
+        let shaded = multiply(tintedCarriage, by: (0.84, 0.78, 0.78)) ?? tintedCarriage
         let v = HardwareVariant(id: id, title: entry.title,
-                                carriage: multiply(tintedCarriage, by: (0.84, 0.78, 0.78)) ?? tintedCarriage,
+                                carriage: extend(shaded) ?? shaded,
                                 rail: multiply(tintedRail, by: (0.96, 0.9, 0.9)) ?? tintedRail,
-                                lamp: lamp, status: status, grilleHole: hole)
+                                lamp: extend(lamp) ?? lamp, status: extend(status) ?? status, grilleHole: hole)
         cache[id] = v
         return v
     }
@@ -125,6 +131,26 @@ enum Hardware {
             px[i + 1] = UInt8(max(0, min(255, out.1 * a * 255)))
             px[i + 2] = UInt8(max(0, min(255, out.2 * a * 255)))
         }
+        return ctx.makeImage()
+    }
+
+    /// Makes the body taller: the rows above the slice stay, the slice is stretched, the rows below move down.
+    private static func extend(_ image: CGImage) -> CGImage? {
+        typealias C = CarriageGeometry
+        let w = image.width, h = image.height
+        let ext = Int(C.bodyExtension), top = Int(C.stretchTop), bottom = Int(C.stretchBottom)
+        let H = h + ext
+        guard let ctx = CGContext(data: nil, width: w, height: H, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let upper = image.cropping(to: CGRect(x: 0, y: 0, width: w, height: top)),
+              let middle = image.cropping(to: CGRect(x: 0, y: top, width: w, height: bottom - top)),
+              let lower = image.cropping(to: CGRect(x: 0, y: bottom, width: w, height: h - bottom)) else { return nil }
+        ctx.interpolationQuality = .high
+        // Core Graphics counts y from the bottom.
+        ctx.draw(lower, in: CGRect(x: 0, y: 0, width: w, height: h - bottom))
+        ctx.draw(middle, in: CGRect(x: 0, y: h - bottom, width: w, height: bottom - top + ext))
+        ctx.draw(upper, in: CGRect(x: 0, y: H - top, width: w, height: top))
         return ctx.makeImage()
     }
 

@@ -74,14 +74,17 @@ struct Metrics {
         // Proportions measured from the approved design, relative to the body height: the rail lip is
         // 0.45, the dark groove 0.19 and the face below it 0.75 body heights. The body reaches 72 % down
         // into the groove.
+        // The rail proportions refer to the original body height; the body itself is taller now and
+        // reaches down over the groove onto the face of the rail.
+        let originalBodyHeight = (C.bodyBottom - C.bodyExtension - C.bodyTop) * s
         let bodyHeight = (C.bodyBottom - C.bodyTop) * s
-        lipHeight = (bodyHeight * 0.45).rounded()
-        grooveHeight = (bodyHeight * 0.19).rounded()
-        faceHeight = (bodyHeight * 0.75).rounded()
+        lipHeight = (originalBodyHeight * 0.45).rounded()
+        grooveHeight = (originalBodyHeight * 0.19).rounded()
+        faceHeight = (originalBodyHeight * 0.75).rounded()
         railScale = lipHeight / (R.grooveTop - R.top)
         bandHeight = lipHeight + grooveHeight + faceHeight
         grooveTopY = faceHeight + grooveHeight
-        carriageBottomY = faceHeight + grooveHeight * 0.28
+        carriageBottomY = faceHeight + grooveHeight * 0.28 - C.bodyExtension * s
         printY = carriageBottomY + bodyHeight
         carriageFrame = CGRect(x: -C.finCenter * s, y: -(C.canvas.height - C.bodyTop) * s,
                                width: C.canvas.width * s, height: C.canvas.height * s)
@@ -436,7 +439,7 @@ final class PaperScene {
         let s = m.assetScale
         let host = CALayer()
         host.frame = m.carriageFrame
-        let pitch: CGFloat = 1.75, hole: CGFloat = 0.8
+        let pitch: CGFloat = 2.4, hole: CGFloat = 0.8
         let left = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.09) * s
         let right = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.38) * s
         let midY = (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s - 0.5
