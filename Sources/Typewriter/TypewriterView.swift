@@ -37,6 +37,7 @@ final class TypewriterView: NSView, NSTextInputClient {
         layer?.addSublayer(scene.root)
         scene.setHint(hint)
         scene.update(layout: model.layout, ghosts: model.ghosts, animated: false)
+        scene.setCapsLock(NSEvent.modifierFlags.contains(.capsLock))
         lightObserver = NotificationCenter.default.addObserver(forName: LightSettings.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.scene.updateLight(LightSettings.current)
         }
@@ -67,6 +68,7 @@ final class TypewriterView: NSView, NSTextInputClient {
         scene.setHint(hint)
         scene.hintLayer.opacity = old.hintLayer.opacity
         scene.update(layout: model.layout, ghosts: model.ghosts, animated: false)
+        scene.setCapsLock(NSEvent.modifierFlags.contains(.capsLock))
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.replaceSublayer(old.root, with: scene.root)
@@ -158,6 +160,11 @@ final class TypewriterView: NSView, NSTextInputClient {
         if let v = Hardware.current { showNotice(v.title, duration: 1.5) }
     }
 
+    override func flagsChanged(with event: NSEvent) {
+        scene.setCapsLock(event.modifierFlags.contains(.capsLock))
+        super.flagsChanged(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command) {
@@ -235,6 +242,10 @@ final class TypewriterView: NSView, NSTextInputClient {
     func characterIndex(for point: NSPoint) -> Int { NSNotFound }
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        // Without marked text (dead keys, input methods) nothing needs this position. macOS would place its
+        // Caps Lock indicator here, over the carriage, so it gets a position outside of all screens instead.
+        // The carriage shows Caps Lock with its own green light.
+        guard hasMarkedText() else { return NSRect(x: -100_000, y: -100_000, width: 0, height: 0) }
         let m = metrics
         let x = m.cellX(col: model.layout.caretCol)
         let r = NSRect(x: x, y: m.typingY, width: m.charWidth, height: m.lineHeight)

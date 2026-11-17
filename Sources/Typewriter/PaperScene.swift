@@ -285,6 +285,8 @@ final class PaperScene {
     private let lampBloom = CAGradientLayer()
     private let lampLayer = CALayer()
     private let statusLayer = CALayer()
+    /// A green light over the status dot while Caps Lock is on.
+    private let capsLayer = CALayer()
     private var lampStrip: CALayer?
     private var lampEdges: [CAGradientLayer] = []
     /// Short heat pulse of the ceramic print head when it prints or erases.
@@ -466,7 +468,22 @@ final class PaperScene {
         statusLayer.shadowOpacity = 0.9
         statusLayer.shadowRadius = 2.5
         statusLayer.shadowOffset = .zero
+
+        // Caps Lock: the status dot glows green.
+        let sp = CarriageGeometry.status
+        let d: CGFloat = 2.6
+        capsLayer.bounds = CGRect(x: 0, y: 0, width: d, height: d)
+        capsLayer.cornerRadius = d / 2
+        capsLayer.position = CGPoint(x: m.carriageFrame.minX + sp.x * m.assetScale,
+                                     y: m.carriageFrame.minY + (CarriageGeometry.canvas.height - sp.y) * m.assetScale)
+        capsLayer.backgroundColor = CGColor(srgbRed: 0.45, green: 1, blue: 0.45, alpha: 1)
+        capsLayer.shadowColor = CGColor(srgbRed: 0.3, green: 1, blue: 0.35, alpha: 1)
+        capsLayer.shadowOpacity = 1
+        capsLayer.shadowRadius = 3
+        capsLayer.shadowOffset = .zero
+        capsLayer.isHidden = true
         head.addSublayer(statusLayer)
+        head.addSublayer(capsLayer)
 
         root.addSublayer(head)
     }
@@ -555,6 +572,13 @@ final class PaperScene {
         lightSettings = settings
         applyLightTint()
         renderLight(settings)
+    }
+
+    func setCapsLock(_ on: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        capsLayer.isHidden = !on
+        CATransaction.commit()
     }
 
     /// The status light flashes when a character is made.
