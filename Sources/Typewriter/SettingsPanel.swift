@@ -1,189 +1,200 @@
 import AppKit
+import SwiftUI
 
-/// A floating settings panel: hardware color, sound and light. It does not take the keyboard focus,
+/// The state behind the settings form. Every change is applied at once.
+final class SettingsModel: ObservableObject {
+    var sounds: SoundEngine? {
+        didSet { reload() }
+    }
+
+    @Published var hardwareID = Hardware.currentID {
+        didSet { if Hardware.currentID != hardwareID { Hardware.currentID = hardwareID } }
+    }
+    @Published var soundEnabled = true {
+        didSet { sounds?.enabled = soundEnabled }
+    }
+    @Published var style = SoundEngine.Style.thermal {
+        didSet {
+            guard let sounds, sounds.style != style else { return }
+            sounds.style = style
+            sounds.play(.key)
+            hasHum = sounds.hasHum
+        }
+    }
+    @Published var printSound = ThermalSynth.PrintSound.current {
+        didSet {
+            guard printSound != ThermalSynth.PrintSound.current else { return }
+            ThermalSynth.PrintSound.current = printSound
+            sounds?.reload()
+            sounds?.play(.key)
+        }
+    }
+    @Published var hum = false {
+        didSet { sounds?.humEnabled = hum }
+    }
+    @Published var hasHum = false
+    @Published var light = LightSettings.current {
+        didSet { if light != LightSettings.current { LightSettings.current = light } }
+    }
+
+    init() {
+        NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.hardwareID != Hardware.currentID else { return }
+            self.hardwareID = Hardware.currentID
+        }
+    }
+
+    func reload() {
+        hardwareID = Hardware.currentID
+        light = LightSettings.current
+        printSound = ThermalSynth.PrintSound.current
+        guard let sounds else { return }
+        soundEnabled = sounds.enabled
+        style = sounds.style
+        hum = sounds.humEnabled
+        hasHum = sounds.hasHum
+    }
+}
+
+struct SettingsView: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        Form {
+            Section("Hardware") {
+                LabeledContent {
+                    HStack(spacing: 8) {
+                        ForEach(Hardware.ids, id: \.id) { entry in
+                            Swatch(color: Color(nsColor: Hardware.swatchColor(entry.id)),
+                                   selected: model.hardwareID == entry.id)
+                                .onTapGesture { model.hardwareID = entry.id }
+                                .help(entry.title)
+                        }
+                    }
+                } label: {
+                    Text(Hardware.ids.first { $0.id == model.hardwareID }?.title ?? "")
+                }
+            }
+
+            Section("Sound") {
+                Toggle("Sounds", isOn: $model.soundEnabled)
+                Picker("Style", selection: $model.style) {
+                    ForEach(SoundEngine.Style.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .disabled(!model.soundEnabled)
+                Picker("Print sound", selection: $model.printSound) {
+                    ForEach(ThermalSynth.PrintSound.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .disabled(!model.soundEnabled || model.style != .thermal)
+                Toggle("Motor hum", isOn: $model.hum)
+                    .disabled(!model.soundEnabled || !model.hasHum)
+            }
+
+            Section {
+                ForEach(LightSettings.parameters.indices, id: \.self) { i in
+                    let p = LightSettings.parameters[i]
+                    LabeledContent(p.title) {
+                        HStack(spacing: 10) {
+                            Slider(value: Binding(get: { model.light[keyPath: p.key] },
+                                                  set: { model.light[keyPath: p.key] = $0 }),
+                                   in: p.range)
+                                .controlSize(.small)
+                            Text(p.format(model.light[keyPath: p.key]))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 52, alignment: .trailing)
+                        }
+                        .frame(width: 230)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Light")
+                    Spacer()
+                    Button("Reset") { model.light = .defaults }
+                        .buttonStyle(.link)
+                        .font(.callout)
+                        .disabled(model.light == .defaults)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        // The panel never takes the focus, so system switches would always look inactive (grey).
+        .toggleStyle(AlwaysActiveSwitch())
+        .frame(width: 440)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A switch that looks like the system switch, but always in its active colors.
+struct AlwaysActiveSwitch: ToggleStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            Spacer()
+            Capsule()
+                .fill(configuration.isOn ? Color.accentColor : Color(nsColor: .tertiaryLabelColor).opacity(0.5))
+                .frame(width: 32, height: 18)
+                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+                        .padding(1.5)
+                }
+                .opacity(isEnabled ? 1 : 0.45)
+                .animation(.easeOut(duration: 0.15), value: configuration.isOn)
+                .onTapGesture { if isEnabled { configuration.isOn.toggle() } }
+        }
+    }
+}
+
+/// A color circle like the accent color choice in System Settings.
+struct Swatch: View {
+    let color: Color
+    let selected: Bool
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .overlay(Circle().strokeBorder(.black.opacity(0.15), lineWidth: 0.5))
+            .overlay(Circle().fill(.white).frame(width: 6, height: 6).opacity(selected ? 1 : 0)
+                .shadow(color: .black.opacity(0.3), radius: 0.5))
+            .frame(width: 18, height: 18)
+            .padding(2)
+            .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2).opacity(selected ? 1 : 0))
+            .contentShape(Circle())
+    }
+}
+
+/// A floating panel with the settings form. It does not take the keyboard focus,
 /// so it can stay open over the page and every change is visible at once.
 final class SettingsPanel: NSPanel {
     static let shared = SettingsPanel()
+    let model = SettingsModel()
 
-    /// Set by the app delegate.
     var sounds: SoundEngine? {
-        didSet { syncSound() }
+        get { model.sounds }
+        set { model.sounds = newValue }
     }
 
-    private var swatches: [SwatchButton] = []
-    private var sliders: [NSSlider] = []
-    private var valueLabels: [NSTextField] = []
-    private let soundCheckbox = NSButton(checkboxWithTitle: "Sounds", target: nil, action: nil)
-    private let humCheckbox = NSButton(checkboxWithTitle: "Motor hum", target: nil, action: nil)
-    private let stylePopup = NSPopUpButton()
-    private let printPopup = NSPopUpButton()
-    private let colorName = NSTextField(labelWithString: "")
-
     private init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 360, height: 10),
-                   styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 440, height: 400),
+                   styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
                    backing: .buffered, defer: false)
         title = "Settings"
+        titlebarAppearsTransparent = true
         isFloatingPanel = true
         becomesKeyOnlyIfNeeded = true
         hidesOnDeactivate = false
+        isMovableByWindowBackground = true
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isReleasedWhenClosed = false
-        buildContent()
-        NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
-            self?.syncHardware()
-        }
-    }
-
-    // MARK: Layout
-
-    private func header(_ text: String) -> NSTextField {
-        let l = NSTextField(labelWithString: text)
-        l.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
-        l.textColor = .secondaryLabelColor
-        return l
-    }
-
-    private func buildContent() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 20)
-
-        // Hardware color: a row of color circles.
-        stack.addArrangedSubview(header("HARDWARE"))
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 6
-        for (i, entry) in Hardware.ids.enumerated() {
-            let b = SwatchButton(color: Hardware.swatchColor(entry.id), title: entry.title)
-            b.tag = i
-            b.target = self
-            b.action = #selector(selectColor(_:))
-            swatches.append(b)
-            row.addArrangedSubview(b)
-        }
-        stack.addArrangedSubview(row)
-        colorName.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        colorName.textColor = .secondaryLabelColor
-        stack.addArrangedSubview(colorName)
-        stack.setCustomSpacing(16, after: colorName)
-
-        // Sound.
-        stack.addArrangedSubview(header("SOUND"))
-        soundCheckbox.target = self
-        soundCheckbox.action = #selector(toggleSound)
-        stack.addArrangedSubview(soundCheckbox)
-        let soundGrid = NSGridView()
-        soundGrid.rowSpacing = 6
-        soundGrid.columnSpacing = 10
-        stylePopup.addItems(withTitles: SoundEngine.Style.allCases.map(\.title))
-        stylePopup.target = self
-        stylePopup.action = #selector(selectStyle)
-        printPopup.addItems(withTitles: ThermalSynth.PrintSound.allCases.map(\.title))
-        printPopup.target = self
-        printPopup.action = #selector(selectPrintSound)
-        soundGrid.addRow(with: [NSTextField(labelWithString: "Style"), stylePopup])
-        soundGrid.addRow(with: [NSTextField(labelWithString: "Print sound"), printPopup])
-        stack.addArrangedSubview(soundGrid)
-        humCheckbox.target = self
-        humCheckbox.action = #selector(toggleHum)
-        stack.addArrangedSubview(humCheckbox)
-        stack.setCustomSpacing(16, after: humCheckbox)
-
-        // Light.
-        stack.addArrangedSubview(header("LIGHT"))
-        let grid = NSGridView()
-        grid.rowSpacing = 8
-        grid.columnSpacing = 10
-        let settings = LightSettings.current
-        for (i, p) in LightSettings.parameters.enumerated() {
-            let label = NSTextField(labelWithString: p.title)
-            let slider = NSSlider(value: settings[keyPath: p.key], minValue: p.range.lowerBound, maxValue: p.range.upperBound,
-                                  target: self, action: #selector(changed(_:)))
-            slider.tag = i
-            slider.isContinuous = true
-            slider.widthAnchor.constraint(equalToConstant: 150).isActive = true
-            let value = NSTextField(labelWithString: p.format(settings[keyPath: p.key]))
-            value.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-            value.alignment = .right
-            value.widthAnchor.constraint(equalToConstant: 64).isActive = true
-            grid.addRow(with: [label, slider, value])
-            sliders.append(slider)
-            valueLabels.append(value)
-        }
-        let reset = NSButton(title: "Reset Light", target: self, action: #selector(resetLight))
-        grid.addRow(with: [NSGridCell.emptyContentView, reset, NSGridCell.emptyContentView])
-        stack.addArrangedSubview(grid)
-
-        contentView = stack
-        setContentSize(stack.fittingSize)
-        syncHardware()
-        syncSound()
-    }
-
-    // MARK: Sync
-
-    private func syncHardware() {
-        let id = Hardware.currentID
-        for (i, s) in swatches.enumerated() { s.isSelected = Hardware.ids[i].id == id }
-        colorName.stringValue = Hardware.ids.first { $0.id == id }?.title ?? ""
-    }
-
-    private func syncSound() {
-        guard let sounds else { return }
-        soundCheckbox.state = sounds.enabled ? .on : .off
-        stylePopup.selectItem(at: SoundEngine.Style.allCases.firstIndex(of: sounds.style) ?? 0)
-        printPopup.selectItem(at: ThermalSynth.PrintSound.allCases.firstIndex(of: .current) ?? 0)
-        printPopup.isEnabled = sounds.enabled && sounds.style == .thermal
-        stylePopup.isEnabled = sounds.enabled
-        humCheckbox.state = sounds.humEnabled ? .on : .off
-        humCheckbox.isEnabled = sounds.enabled && sounds.hasHum
-    }
-
-    // MARK: Actions
-
-    @objc private func selectColor(_ sender: SwatchButton) {
-        Hardware.currentID = Hardware.ids[sender.tag].id
-    }
-
-    @objc private func toggleSound() {
-        sounds?.enabled = soundCheckbox.state == .on
-        syncSound()
-    }
-
-    @objc private func selectStyle() {
-        sounds?.style = SoundEngine.Style.allCases[stylePopup.indexOfSelectedItem]
-        sounds?.play(.key)
-        syncSound()
-    }
-
-    @objc private func selectPrintSound() {
-        ThermalSynth.PrintSound.current = ThermalSynth.PrintSound.allCases[printPopup.indexOfSelectedItem]
-        sounds?.reload()
-        sounds?.play(.key)
-    }
-
-    @objc private func toggleHum() {
-        sounds?.humEnabled = humCheckbox.state == .on
-    }
-
-    @objc private func changed(_ sender: NSSlider) {
-        let p = LightSettings.parameters[sender.tag]
-        var s = LightSettings.current
-        s[keyPath: p.key] = sender.doubleValue
-        valueLabels[sender.tag].stringValue = p.format(sender.doubleValue)
-        LightSettings.current = s
-    }
-
-    @objc private func resetLight() {
-        LightSettings.current = .defaults
-        for (i, p) in LightSettings.parameters.enumerated() {
-            sliders[i].doubleValue = LightSettings.defaults[keyPath: p.key]
-            valueLabels[i].stringValue = p.format(sliders[i].doubleValue)
-        }
+        let host = NSHostingView(rootView: SettingsView(model: model))
+        contentView = host
+        setContentSize(host.fittingSize)
     }
 
     func toggle() {
@@ -191,50 +202,11 @@ final class SettingsPanel: NSPanel {
             orderOut(nil)
             return
         }
-        syncHardware()
-        syncSound()
+        model.reload()
         if let screen = NSScreen.screens.first {
             let f = screen.visibleFrame
             setFrameTopLeftPoint(NSPoint(x: f.maxX - frame.width - 24, y: f.maxY - 24))
         }
         orderFrontRegardless()
-    }
-}
-
-/// A round color swatch. The selected one gets a ring.
-final class SwatchButton: NSControl {
-    private let color: NSColor
-    var isSelected = false { didSet { needsDisplay = true } }
-
-    init(color: NSColor, title: String) {
-        self.color = color
-        super.init(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        toolTip = title
-        setAccessibilityLabel(title)
-        setAccessibilityRole(.button)
-        widthAnchor.constraint(equalToConstant: 24).isActive = true
-        heightAnchor.constraint(equalToConstant: 24).isActive = true
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let b = bounds
-        if isSelected {
-            let ring = NSBezierPath(ovalIn: b.insetBy(dx: 1, dy: 1))
-            ring.lineWidth = 2
-            NSColor.controlAccentColor.setStroke()
-            ring.stroke()
-        }
-        let dot = NSBezierPath(ovalIn: b.insetBy(dx: 4.5, dy: 4.5))
-        color.setFill()
-        dot.fill()
-        NSColor(white: 0, alpha: 0.2).setStroke()
-        dot.lineWidth = 0.5
-        dot.stroke()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        sendAction(action, to: target)
     }
 }

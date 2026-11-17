@@ -8,7 +8,7 @@ final class SoundEngine {
 
     enum Style: String, CaseIterable {
         case thermal, electric
-        var title: String { self == .thermal ? "Thermal (1980s electronic)" : "Electric (recorded)" }
+        var title: String { self == .thermal ? "Thermal" : "Electric" }
     }
 
     /// The sound style. Changing it reloads the sounds.
