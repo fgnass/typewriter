@@ -114,8 +114,10 @@ struct Metrics {
     }
 
     /// The print point is where the next character will appear: the center of the caret cell.
+    /// The fin is 2 pt wider than a cell, so the carriage sits 1.5 pt further right: the fin then starts
+    /// half a point behind the last written character and never covers it.
     func printX(caretCol: Int) -> CGFloat {
-        cellX(col: caretCol) + charWidth / 2
+        cellX(col: caretCol) + charWidth / 2 + 1.5
     }
 }
 
