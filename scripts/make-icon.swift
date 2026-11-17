@@ -66,7 +66,7 @@ func render(_ size: Int) -> Data {
         .font: font, .foregroundColor: NSColor(srgbRed: 0.17, green: 0.15, blue: 0.19, alpha: 1)])
     let line = CTLineCreateWithAttributedString(letter)
     let glyph = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-    c.textPosition = CGPoint(x: tile.midX - glyph.midX, y: tile.midY - glyph.midY + 30)
+    c.textPosition = CGPoint(x: tile.midX - glyph.midX, y: tile.midY - glyph.midY)
     CTLineDraw(line, c)
     // A faint inner edge, so the light tile stands out on a light Dock.
     c.addPath(path)
