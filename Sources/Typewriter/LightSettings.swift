@@ -18,7 +18,7 @@ struct LightSettings: Equatable {
     /// Tilt of the beam in degrees. Negative values lean toward the written text on the left.
     var tilt: Double
 
-    static let defaults = LightSettings(spread: 120, softness: 0.12, brightness: 1, reach: 0.77, temperature: 3600, ambient: 0.78, tilt: -28)
+    static let defaults = LightSettings(spread: 90, softness: 0.25, brightness: 1, reach: 1.1, temperature: 3600, ambient: 0.75, tilt: -50)
 
     struct Parameter {
         let key: WritableKeyPath<LightSettings, Double>
@@ -64,7 +64,7 @@ struct LightSettings: Equatable {
         let b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * log(t - 10) - 305.0447927307)
         let c = [r, g, b].map { max(0, min(255, $0)) }
         let m = c.max() ?? 255
-        let tint = 0.2
+        let tint = 0.55
         func mixWhite(_ v: Double) -> Double { 1 - tint + tint * v / m }
         return (mixWhite(c[0]), mixWhite(c[1]), mixWhite(c[2]))
     }

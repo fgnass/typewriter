@@ -83,9 +83,12 @@ enum Hardware {
               let hole = image(dir.appendingPathComponent("grille-hole.png")) else { return nil }
         let railBand = rail.cropping(to: CGRect(x: 0, y: RailGeometry.top, width: CGFloat(rail.width),
                                                 height: RailGeometry.bottom - RailGeometry.top)) ?? rail
+        // The hardware sits in the dim, warm dusk of the room, so it is darker than the studio-lit images.
+        let tintedCarriage = entry.color.map { tint(carriage, to: $0) ?? carriage } ?? carriage
+        let tintedRail = entry.color.map { tint(railBand, to: $0) ?? railBand } ?? railBand
         let v = HardwareVariant(id: id, title: entry.title,
-                                carriage: entry.color.map { tint(carriage, to: $0) ?? carriage } ?? carriage,
-                                rail: entry.color.map { tint(railBand, to: $0) ?? railBand } ?? railBand,
+                                carriage: multiply(tintedCarriage, by: (0.84, 0.78, 0.78)) ?? tintedCarriage,
+                                rail: multiply(tintedRail, by: (0.96, 0.9, 0.9)) ?? tintedRail,
                                 lamp: lamp, status: status, grilleHole: hole)
         cache[id] = v
         return v
@@ -122,6 +125,20 @@ enum Hardware {
             px[i + 1] = UInt8(max(0, min(255, out.1 * a * 255)))
             px[i + 2] = UInt8(max(0, min(255, out.2 * a * 255)))
         }
+        return ctx.makeImage()
+    }
+
+    private static func multiply(_ image: CGImage, by f: (CGFloat, CGFloat, CGFloat)) -> CGImage? {
+        let w = image.width, h = image.height
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let r = CGRect(x: 0, y: 0, width: w, height: h)
+        ctx.draw(image, in: r)
+        ctx.setBlendMode(.multiply)
+        ctx.setFillColor(CGColor(srgbRed: f.0, green: f.1, blue: f.2, alpha: 1))
+        ctx.clip(to: r, mask: image)
+        ctx.fill(r)
         return ctx.makeImage()
     }
 

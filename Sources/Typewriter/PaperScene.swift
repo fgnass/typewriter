@@ -19,8 +19,11 @@ struct Metrics {
     let assetScale: CGFloat
     /// Points per pixel of the rail image. The rail is drawn larger than the carriage image scale.
     let railScale: CGFloat
-    /// Height of the rail band at the bottom of the screen.
+    /// Height of the rail band at the bottom of the screen, and of its three parts.
     let bandHeight: CGFloat
+    let lipHeight: CGFloat
+    let grooveHeight: CGFloat
+    let faceHeight: CGFloat
     /// Top of the dark guide groove in the rail.
     let grooveTopY: CGFloat
     /// The carriage image, relative to the print point (fin center, top of the body).
@@ -68,11 +71,17 @@ struct Metrics {
         let s = assetScale
         // The carriage stands in front of the rail: its lower edge reaches down to the bottom of the groove,
         // and the top of the rail lip meets the body a little above its middle.
+        // Proportions measured from the approved design, relative to the body height: the rail lip is
+        // 0.45, the dark groove 0.19 and the face below it 0.75 body heights. The body reaches 72 % down
+        // into the groove.
         let bodyHeight = (C.bodyBottom - C.bodyTop) * s
-        railScale = bodyHeight * 0.58 / (R.grooveBottom - R.top)
-        bandHeight = ((R.bottom - R.top) * railScale).rounded()
-        grooveTopY = bandHeight - (R.grooveTop - R.top) * railScale
-        carriageBottomY = bandHeight - (R.grooveBottom - R.top) * railScale
+        lipHeight = (bodyHeight * 0.45).rounded()
+        grooveHeight = (bodyHeight * 0.19).rounded()
+        faceHeight = (bodyHeight * 0.75).rounded()
+        railScale = lipHeight / (R.grooveTop - R.top)
+        bandHeight = lipHeight + grooveHeight + faceHeight
+        grooveTopY = faceHeight + grooveHeight
+        carriageBottomY = faceHeight + grooveHeight * 0.28
         printY = carriageBottomY + bodyHeight
         carriageFrame = CGRect(x: -C.finCenter * s, y: -(C.canvas.height - C.bodyTop) * s,
                                width: C.canvas.width * s, height: C.canvas.height * s)
@@ -108,7 +117,7 @@ struct Metrics {
 
 enum Palette {
     static let ink: CGFloat = 0.14
-    static var paperBackground: CGColor { CGColor(srgbRed: 0.77, green: 0.78, blue: 0.84, alpha: 1) }
+    static var paperBackground: CGColor { CGColor(srgbRed: 0.745, green: 0.715, blue: 0.79, alpha: 1) }
 }
 
 /// Draws the glyphs (and correction traces) of one line of paper.
@@ -391,7 +400,7 @@ final class PaperScene {
         head.addSublayer(lampLayer)
         // The glowing edge of the lamp strip along the top of the body.
         let strip = CAGradientLayer()
-        let warmWhite = CGColor(srgbRed: 1, green: 0.97, blue: 0.9, alpha: 1)
+        let warmWhite = CGColor(srgbRed: 1, green: 0.98, blue: 0.94, alpha: 1)
         strip.colors = [CGColor(srgbRed: 1, green: 0.95, blue: 0.84, alpha: 0), warmWhite, warmWhite,
                         CGColor(srgbRed: 1, green: 0.95, blue: 0.84, alpha: 0)]
         strip.locations = [0, 0.04, 0.96, 1]
@@ -401,16 +410,20 @@ final class PaperScene {
         strip.frame = CGRect(x: CarriageGeometry.lampStart.x * s,
                              y: (CarriageGeometry.canvas.height - CarriageGeometry.bodyTop) * s - 1.6,
                              width: (CarriageGeometry.lampEnd.x - CarriageGeometry.lampStart.x) * s, height: 1.8)
-        strip.shadowColor = CGColor(srgbRed: 1, green: 0.66, blue: 0.32, alpha: 1)
+        strip.shadowColor = CGColor(srgbRed: 1, green: 0.8, blue: 0.55, alpha: 1)
         strip.shadowOpacity = 1
-        strip.shadowRadius = 7
+        strip.shadowRadius = 4
         strip.shadowOffset = CGSize(width: 0, height: 3)
         lampLayer.addSublayer(strip)
         lampStrip = strip
         statusLayer.contents = variant.status
         statusLayer.contentsGravity = .resize
         statusLayer.frame = m.carriageFrame
-        statusLayer.opacity = 0.35
+        statusLayer.opacity = 1
+        statusLayer.shadowColor = CGColor(srgbRed: 1, green: 0.97, blue: 0.9, alpha: 1)
+        statusLayer.shadowOpacity = 0.9
+        statusLayer.shadowRadius = 2.5
+        statusLayer.shadowOffset = .zero
         head.addSublayer(statusLayer)
 
         root.addSublayer(head)
@@ -423,7 +436,7 @@ final class PaperScene {
         let s = m.assetScale
         let host = CALayer()
         host.frame = m.carriageFrame
-        let pitch: CGFloat = 1.75, hole: CGFloat = 0.95
+        let pitch: CGFloat = 1.75, hole: CGFloat = 0.8
         let left = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.09) * s
         let right = (C.bodyLeft + (C.bodyRight - C.bodyLeft) * 0.38) * s
         let midY = (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s - 0.5
@@ -475,6 +488,9 @@ final class PaperScene {
         lipHighlight.position = CGPoint(x: 0, y: lipY)
         radial(grooveHighlight, width: w * 4.5, height: 2.5)
         grooveHighlight.position = CGPoint(x: 0, y: grooveBottomY + 0.5)
+        // The rail stays matte like in the approved design; only a faint warm spill remains near the carriage.
+        lipHighlight.isHidden = true
+        grooveHighlight.isHidden = true
         for l in [bandSpill, lipHighlight, grooveHighlight] {
             // Light adds up on metal.
             l.compositingFilter = CIFilter(name: "CIAdditionCompositing")
@@ -507,8 +523,8 @@ final class PaperScene {
     /// The status light flashes when a character is made.
     func flashStatus() {
         let a = CAKeyframeAnimation(keyPath: "opacity")
-        a.values = [0.35, 1, 1, 0.35]
-        a.keyTimes = [0, 0.1, 0.4, 1]
+        a.values = [1, 0.25, 1, 1]
+        a.keyTimes = [0, 0.15, 0.5, 1]
         a.duration = 0.5
         statusLayer.add(a, forKey: "flash")
     }
@@ -524,7 +540,7 @@ final class PaperScene {
         ceramicGlow.colors = [warm(0.5 * k), warm(0.12 * k), warm(0)]
         ceramicGlow.locations = [0, 0.45, 1]
         railGlow.colors = [warm(0.3 * k), warm(0)]
-        bandSpill.colors = [warm(0.55 * k), warm(0.18 * k), warm(0)]
+        bandSpill.colors = [warm(0.12 * k), warm(0.04 * k), warm(0)]
         bandSpill.locations = [0, 0.4, 1]
         func white(_ a: Double) -> CGColor { CGColor(srgbRed: 1, green: 0.97 * c.g / max(c.r, 0.01), blue: 0.9 * c.b / max(c.r, 0.01), alpha: a) }
         lipHighlight.colors = [white(min(1, 1.1 * k)), warm(0.4 * k), warm(0)]
@@ -764,20 +780,34 @@ final class PaperScene {
         ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         ctx.setBlendMode(.normal)
-        ctx.setFillColor(CGColor(gray: 1, alpha: 0.7))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 0.35))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
     }
 
-    /// The rail band at the bottom: the rail image at the carriage scale, stretched to the full width.
-    /// Its surfaces run horizontally, so the horizontal stretch does not show.
+    /// The rail band at the bottom, built from the three parts of the rail image (lip, groove, face),
+    /// each scaled to its measured height and stretched to the full width.
     private static func makeBandImage(variant v: HardwareVariant, metrics m: Metrics, scale: CGFloat) -> CGImage? {
         let w = Int(m.size.width * scale), h = Int(m.bandHeight * scale)
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.interpolationQuality = .high
-        ctx.draw(v.rail, in: CGRect(x: 0, y: 0, width: w, height: h))
+        typealias R = RailGeometry
+        let rail = v.rail // starts at R.top
+        func slice(_ y0: CGFloat, _ y1: CGFloat) -> CGImage? {
+            rail.cropping(to: CGRect(x: 0, y: y0 - R.top, width: CGFloat(rail.width), height: y1 - y0))
+        }
+        let W = CGFloat(w)
+        if let face = slice(R.grooveBottom, R.bottom) {
+            ctx.draw(face, in: CGRect(x: 0, y: 0, width: W, height: m.faceHeight * scale))
+        }
+        if let groove = slice(R.grooveTop, R.grooveBottom) {
+            ctx.draw(groove, in: CGRect(x: 0, y: m.faceHeight * scale, width: W, height: m.grooveHeight * scale))
+        }
+        if let lip = slice(R.top, R.grooveTop) {
+            ctx.draw(lip, in: CGRect(x: 0, y: (m.faceHeight + m.grooveHeight) * scale, width: W, height: m.lipHeight * scale))
+        }
         return ctx.makeImage()
     }
 
@@ -793,12 +823,13 @@ final class PaperScene {
         var px = [UInt8](repeating: 0, count: w * h * 4)
         var rng = SplitMix64(seed: 7)
         let half = s.spread / 2 * .pi / 180
-        // The lamp is a strip along the top edge of the body. A virtual apex below the strip makes the beam
-        // as wide as the strip where it leaves the body. Below the top edge of the body there is no light.
-        let depth = Double(m.lampHalfLength) / max(0.2, tan(half))
+        // The lamp is a strip along the top edge of the body. Every point of the strip sends the same tilted
+        // beam; for each paper point the strip point whose beam axis passes through it is used.
+        // Below the top edge of the body there is no light.
+        let depth = 0.0
         let halfStrip = Double(m.lampHalfLength)
         let glowReach = Double(m.charWidth) * 2.5
-        let apexY = Double(m.printY - m.bandHeight) - depth
+        let apexY = Double(m.printY - m.bandHeight)
         let soft = max(0.01, s.softness * half)
         let reach = max(1, s.reach * paperH)
         let cw = Double(m.charWidth)
@@ -808,10 +839,11 @@ final class PaperScene {
         let lampX = Double(m.lampOffsetX)
         let poolY = Double(m.baselineY + m.xHeight / 2 - m.printY)
         let poolW = cw * 1.6, poolH = Double(m.lineHeight) * 0.9
-        let lc = s.color
+        // A rosy, peach-colored light, as measured in the approved design.
+        let lc = (r: s.color.r, g: s.color.g * 0.985, b: min(1, s.color.b * 1.04))
         let amb = s.ambient
         // The ambient light is cool lavender, the lamp is warm.
-        let ambient = (r: amb * 0.987, g: amb, b: min(1, amb * 1.077))
+        let ambient = (r: amb, g: amb * 0.96, b: min(1, amb * 1.06))
         func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
             let t = max(0, min(1, (x - e0) / (e1 - e0)))
             return t * t * (3 - 2 * t)
@@ -821,7 +853,8 @@ final class PaperScene {
             let v = (Double(h - 1 - row) + 0.5) * step - apexY
             for col in 0..<w {
                 let pu0 = (Double(col) + 0.5) * step - W
-                let u = pu0 - lampX
+                let sx = min(lampX + halfStrip, max(lampX - halfStrip, pu0 - v * axis.x / max(axis.y, 0.05)))
+                let u = pu0 - sx
                 let d = (u * u + v * v).squareRoot()
                 var beam = 0.0
                 // Angle between this point and the tilted beam axis, as seen from the lamp.
@@ -840,15 +873,17 @@ final class PaperScene {
                 let pool = 0.55 * exp(-(pu * pu) / (2 * poolW * poolW) - (pv * pv) / (2 * poolH * poolH))
                 // The paper right above the lamp strip glows warm.
                 let su = max(0, abs(pu0 - lampX) - halfStrip), sv = v - depth
-                let stripGlow = sv > -1 ? exp(-(su * su + sv * sv).squareRoot() / glowReach) * smooth(-1, 1, sv) : 0
+                // Strongest at the right end of the strip, in the corner in front of the fin.
+                let stripPos = min(1, max(0, (pu0 - lampX + halfStrip) / (2 * halfStrip)))
+                let stripGlow = sv > -1 ? (0.35 + 0.65 * stripPos * stripPos) * exp(-(su * su + sv * sv).squareRoot() / glowReach) * smooth(-1, 1, sv) : 0
                 let k = min(1, s.brightness * (beam * falloff + pool + stripGlow))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
                 // Close to the lamp the light is warmer and more saturated.
                 let hot = min(1, stripGlow * s.brightness)
                 px[i] = q(mix(mix(ambient.r, lc.r, k), 1.0, hot))
-                px[i + 1] = q(mix(mix(ambient.g, lc.g, k), 0.84, hot))
-                px[i + 2] = q(mix(mix(ambient.b, lc.b, k), 0.68, hot))
+                px[i + 1] = q(mix(mix(ambient.g, lc.g, k), 0.91, hot))
+                px[i + 2] = q(mix(mix(ambient.b, lc.b, k), 0.79, hot))
                 px[i + 3] = 255
             }
         }
