@@ -173,6 +173,12 @@ final class PaperScene {
     private let carriage = CALayer()
     private let ceramicGlow = CAGradientLayer()
     private let railGlow = CAGradientLayer()
+    /// Light of the lamp on the housing band. It moves with the head and is clipped to the band.
+    private let bandLight = CALayer()
+    private let bandSpill = CAGradientLayer()
+    private let lipHighlight = CAGradientLayer()
+    private let grooveHighlight = CAGradientLayer()
+    private let lampBloom = CAGradientLayer()
     private let scale: CGFloat
     private var lineLayers: [Int: LineLayer] = [:]
     private var lastCaretLine = 0
@@ -218,6 +224,8 @@ final class PaperScene {
         band.frame = CGRect(x: 0, y: 0, width: m.size.width, height: m.bandHeight)
         band.contents = Self.makeBandImage(variant: variant, metrics: m, scale: scale)
         band.contentsGravity = .resize
+        band.masksToBounds = true
+        setupBandLight()
         root.addSublayer(band)
 
         setupHead()
@@ -293,10 +301,49 @@ final class PaperScene {
         glowHost.compositingFilter = CIFilter(name: "CIScreenBlendMode")
         head.addSublayer(glowHost)
 
+        // The glow of the lamp itself, right at the print point.
+        radial(lampBloom, width: m.ceramicWidth * 2.4, height: m.ceramicWidth * 1.3)
+        lampBloom.position = CGPoint(x: 0, y: 1)
+        head.addSublayer(lampBloom)
+
         root.addSublayer(head)
     }
 
     func setHint(_ text: String) { hintLayer.string = text }
+
+    private func radial(_ l: CAGradientLayer, width: CGFloat, height: CGFloat) {
+        l.type = .radial
+        l.startPoint = CGPoint(x: 0.5, y: 0.5)
+        l.endPoint = CGPoint(x: 1, y: 1)
+        l.bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        l.compositingFilter = CIFilter(name: "CIScreenBlendMode")
+    }
+
+    /// The lamp also lights its surroundings: a warm spill on the band next to the carriage,
+    /// a specular highlight on the polished lip and a thin one on the lower edge of the groove.
+    private func setupBandLight() {
+        let m = metrics, r = variant.railReg
+        func bandY(_ v: Double) -> CGFloat { m.bandHeight * (1 - CGFloat((v - r.top) / (r.bottom - r.top))) }
+        let lipY = bandY((r.top + r.grooveTop) / 2)
+        let lipHeight = max(2, bandY(r.top) - bandY(r.grooveTop))
+        let grooveBottomY = bandY(r.grooveBottom)
+        let w = m.visibleCarriageWidth
+        bandLight.bounds = .zero
+        bandLight.position = CGPoint(x: m.printX(caretCol: 0), y: 0)
+
+        radial(bandSpill, width: w * 4.5, height: m.bandHeight * 1.8)
+        bandSpill.position = CGPoint(x: 0, y: m.bandHeight)
+        radial(lipHighlight, width: w * 6, height: lipHeight * 1.5)
+        lipHighlight.position = CGPoint(x: 0, y: lipY)
+        radial(grooveHighlight, width: w * 4.5, height: 2.5)
+        grooveHighlight.position = CGPoint(x: 0, y: grooveBottomY + 0.5)
+        for l in [bandSpill, lipHighlight, grooveHighlight] {
+            // Light adds up on metal.
+            l.compositingFilter = CIFilter(name: "CIAdditionCompositing")
+            bandLight.addSublayer(l)
+        }
+        band.addSublayer(bandLight)
+    }
 
     // MARK: Light
 
@@ -329,6 +376,14 @@ final class PaperScene {
         ceramicGlow.colors = [warm(0.5 * k), warm(0.12 * k), warm(0)]
         ceramicGlow.locations = [0, 0.45, 1]
         railGlow.colors = [warm(0.3 * k), warm(0)]
+        bandSpill.colors = [warm(0.55 * k), warm(0.18 * k), warm(0)]
+        bandSpill.locations = [0, 0.4, 1]
+        func white(_ a: Double) -> CGColor { CGColor(srgbRed: 1, green: 0.97 * c.g / max(c.r, 0.01), blue: 0.9 * c.b / max(c.r, 0.01), alpha: a) }
+        lipHighlight.colors = [white(min(1, 1.1 * k)), warm(0.4 * k), warm(0)]
+        lipHighlight.locations = [0, 0.35, 1]
+        grooveHighlight.colors = [white(min(1, 0.95 * k)), warm(0.25 * k), warm(0)]
+        lampBloom.colors = [white(0.85 * k), warm(0.35 * k), warm(0)]
+        lampBloom.locations = [0, 0.3, 1]
         CATransaction.commit()
     }
 
@@ -410,6 +465,7 @@ final class PaperScene {
         let duration: CFTimeInterval = instant ? 0 : (lineChanged ? 0.32 : 0.09)
         let timing = lineChanged ? CAMediaTimingFunction(controlPoints: 0.45, 0, 0.2, 1) : CAMediaTimingFunction(controlPoints: 0.2, 0.7, 0.3, 1)
         move(head, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing)
+        move(bandLight, to: CGPoint(x: x, y: 0), duration: duration, timing: timing)
         move(light, to: CGPoint(x: x, y: m.bandHeight), duration: duration, timing: timing)
         move(textContainer, to: CGPoint(x: m.left - m.linePadding, y: m.typingY + CGFloat(caretLine) * m.lineHeight),
              duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
