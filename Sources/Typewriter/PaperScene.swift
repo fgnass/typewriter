@@ -28,8 +28,10 @@ struct Metrics {
     let elementWidth: CGFloat
     let elementBottomY: CGFloat
     let elementTopY: CGFloat
-    /// Where the lamp light starts: the top of the block, at the element.
+    /// Where the lamp light starts: the top of the block.
     let printY: CGFloat
+    /// Horizontal position of the lamp relative to the print point.
+    let lampOffsetX: CGFloat
     let xHeight: CGFloat
 
     let baselineY: CGFloat
@@ -65,6 +67,7 @@ struct Metrics {
         carriageBottomY = bandHeight - 1
         carriageTopY = carriageBottomY + carriageHeight
         printY = carriageTopY
+        lampOffsetX = -(charWidth * 2.5).rounded()
         // The current line sits right above the block; descenders keep a small gap.
         baselineY = (carriageTopY + descent + 3).rounded()
         baseline = (lineHeight * 0.32).rounded()
@@ -733,6 +736,10 @@ final class PaperScene {
         let soft = max(0.01, s.softness * half)
         let reach = max(1, s.reach * paperH)
         let cw = Double(m.charWidth)
+        let tilt = s.tilt * .pi / 180
+        let axis = (x: sin(tilt), y: cos(tilt))
+        // The lamp sits in the body, left of the print point.
+        let lampX = Double(m.lampOffsetX)
         let poolY = Double(m.baselineY + m.xHeight / 2 - m.printY)
         let poolW = cw * 1.6, poolH = Double(m.lineHeight) * 0.9
         let lc = s.color
@@ -747,11 +754,15 @@ final class PaperScene {
         for row in 0..<h {
             let v = (Double(h - 1 - row) + 0.5) * step - apexY
             for col in 0..<w {
-                let u = (Double(col) + 0.5) * step - W
+                let pu0 = (Double(col) + 0.5) * step - W
+                let u = pu0 - lampX
                 let d = (u * u + v * v).squareRoot()
                 var beam = 0.0
-                if v > 0 {
-                    let angle = atan2(abs(u), v)
+                // Angle between this point and the tilted beam axis, as seen from the lamp.
+                let along = u * axis.x + v * axis.y
+                if along > 0 {
+                    let across = u * axis.y - v * axis.x
+                    let angle = atan2(abs(across), along)
                     // The edge gets softer with distance, like a real penumbra. It is never narrower
                     // than about 2 pt, so it never shows the pixel grid.
                     let edge = max(soft * min(1, 0.25 + d / (0.5 * paperH)), 2 / max(d, 1))
@@ -759,7 +770,7 @@ final class PaperScene {
                 }
                 let falloff = exp(-(d / reach) * (d / reach))
                 // A focused pool of light on the freshly printed character, one cell left of the element.
-                let pu = u + cw, pv = v - poolY
+                let pu = pu0 + cw, pv = v - poolY
                 let pool = 0.55 * exp(-(pu * pu) / (2 * poolW * poolW) - (pv * pv) / (2 * poolH * poolH))
                 let k = min(1, s.brightness * (beam * falloff + pool))
                 let i = (row * w + col) * 4

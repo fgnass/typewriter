@@ -15,8 +15,10 @@ struct LightSettings: Equatable {
     var temperature: Double
     /// Brightness of the cool light on the paper outside the lamp.
     var ambient: Double
+    /// Tilt of the beam in degrees. Negative values lean toward the written text on the left.
+    var tilt: Double
 
-    static let defaults = LightSettings(spread: 150, softness: 0.08, brightness: 1, reach: 0.77, temperature: 3600, ambient: 0.78)
+    static let defaults = LightSettings(spread: 120, softness: 0.12, brightness: 1, reach: 0.77, temperature: 3600, ambient: 0.78, tilt: -28)
 
     struct Parameter {
         let key: WritableKeyPath<LightSettings, Double>
@@ -32,6 +34,7 @@ struct LightSettings: Equatable {
         Parameter(key: \.reach, title: "Reach", range: 0.15...1.5, format: { "\(Int($0 * 100)) %" }),
         Parameter(key: \.temperature, title: "Color Temperature", range: 2000...6500, format: { "\(Int($0)) K" }),
         Parameter(key: \.ambient, title: "Ambient Light", range: 0.5...1, format: { "\(Int($0 * 100)) %" }),
+        Parameter(key: \.tilt, title: "Tilt", range: -60...60, format: { "\(Int($0))°" }),
     ]
 
     static let didChange = Notification.Name("LightSettingsDidChange")
