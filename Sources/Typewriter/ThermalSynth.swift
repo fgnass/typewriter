@@ -1,8 +1,8 @@
 import AVFoundation
 
-/// Synthetic sounds of an electronic thermal typewriter from the 1980s:
-/// no hammer strike, but stepper motors that move the print head and feed the paper,
-/// a soft tick of the thermal head, and an electronic beep near the margin.
+/// Synthetic sounds for the electronic typewriter. The goal is a warm, calm feeling:
+/// everything is soft and low, like a well-damped device with felt and rubber inside,
+/// not a mechanical clatter and not a bright electronic whine. Most energy sits between 200 and 800 Hz: warm, but still audible on laptop speakers.
 enum ThermalSynth {
     private static let rate = 44100.0
 
@@ -10,38 +10,35 @@ enum ThermalSynth {
         switch kind {
         case .key:
             return (0..<5).map { i in
-                var s = mix(tick(seed: UInt64(10 + i), level: 0.35), at: 0,
-                            with: step(seed: UInt64(20 + i), variation: Double(i)), offset: 0.012)
-                normalize(&s, peak: 0.55)
+                var s = mix(tap(seed: UInt64(10 + i), pitch: 1 + Double(i) * 0.03), at: 0,
+                            with: purr(duration: 0.05, seed: UInt64(20 + i), level: 0.35), offset: 0.01)
+                normalize(&s, peak: 0.42)
                 return buffer(s, format)
             }
         case .space:
             return (0..<3).map { i in
-                var s = step(seed: UInt64(40 + i), variation: Double(i))
-                normalize(&s, peak: 0.45)
+                var s = purr(duration: 0.07, seed: UInt64(40 + i), level: 1)
+                normalize(&s, peak: 0.26)
                 return buffer(s, format)
             }
         case .backspace:
             return (0..<2).map { i in
-                var s = mix(step(seed: UInt64(60 + i), variation: Double(i) + 2), at: 0,
-                            with: tick(seed: UInt64(70 + i), level: 0.25, bright: true), offset: 0.03)
-                normalize(&s, peak: 0.45)
+                var s = mix(purr(duration: 0.06, seed: UInt64(60 + i), level: 1), at: 0,
+                            with: tap(seed: UInt64(70 + i), pitch: 1.15), offset: 0.03)
+                normalize(&s, peak: 0.3)
                 return buffer(s, format)
             }
         case .carriageReturn:
-            // A long glide back to the left margin, then the paper feed.
-            let glide = stepper(duration: 0.34, startRate: 350, peakRate: 3000, endRate: 350,
-                                ring: 2300, body: 260, seed: 90, whine: 0.08)
-            var s = mix(glide, at: 0, with: lineFeed(seed: 91), offset: 0.33)
-            normalize(&s, peak: 0.5)
+            var s = mix(glide(duration: 0.4, seed: 90), at: 0, with: settle(seed: 91), offset: 0.36)
+            normalize(&s, peak: 0.4)
             return [buffer(s, format)]
         case .feed:
-            var s = lineFeed(seed: 95)
-            normalize(&s, peak: 0.45)
+            var s = purr(duration: 0.14, seed: 95, level: 1, low: true)
+            normalize(&s, peak: 0.3)
             return [buffer(s, format)]
         case .bell:
-            var s = beep()
-            normalize(&s, peak: 0.22)
+            var s = chime()
+            normalize(&s, peak: 0.16)
             return [buffer(s, format)]
         case .hum:
             return []
@@ -50,79 +47,87 @@ enum ThermalSynth {
 
     // MARK: Building blocks
 
-    /// One character step of the print head motor: a short, rising and falling buzz.
-    private static func step(seed: UInt64, variation: Double) -> [Float] {
-        stepper(duration: 0.03 + variation * 0.002, startRate: 700, peakRate: 1500 + variation * 40, endRate: 700,
-                ring: 2400 + variation * 90, body: 320, seed: seed, whine: 0.05)
-    }
-
-    private static func lineFeed(seed: UInt64) -> [Float] {
-        stepper(duration: 0.09, startRate: 300, peakRate: 820, endRate: 300, ring: 1500, body: 150, seed: seed, whine: 0.06)
-    }
-
-    /// A stepper motor: every step is a short metallic impulse. The step rate ramps up, holds, and ramps down,
-    /// which gives the typical whirr whose pitch follows the speed.
-    private static func stepper(duration: Double, startRate: Double, peakRate: Double, endRate: Double,
-                                ring: Double, body: Double, seed: UInt64, whine: Double) -> [Float] {
-        let tail = 0.03
-        let n = Int((duration + tail) * rate)
-        var out = [Double](repeating: 0, count: n)
+    /// A soft, low key tap: a damped body thump with a very muffled contact.
+    private static func tap(seed: UInt64, pitch: Double) -> [Float] {
+        let n = Int(0.06 * rate)
         var rng = SplitMix64(seed: seed)
-        // Step times from the rate profile.
-        var steps: [Int] = []
-        var phase = 0.0
-        var whinePhase = 0.0
-        for i in 0..<Int(duration * rate) {
-            let t = Double(i) / rate / duration
-            let r: Double
-            if t < 0.35 { r = startRate + (peakRate - startRate) * smooth(t / 0.35) }
-            else if t > 0.65 { r = peakRate + (endRate - peakRate) * smooth((t - 0.65) / 0.35) }
-            else { r = peakRate }
-            phase += r / rate
-            if phase >= 1 { phase -= 1; steps.append(i) }
-            whinePhase += r / rate
-            let env = sin(.pi * t)
-            out[i] += whine * env * (sin(2 * .pi * whinePhase) + 0.35 * sin(4 * .pi * whinePhase))
-        }
-        // Impulse response of one step.
-        let hLen = Int(0.012 * rate)
-        var h = [Double](repeating: 0, count: hLen)
-        for i in 0..<hLen {
+        var lp1 = 0.0, lp2 = 0.0
+        let body = 260 * pitch
+        return (0..<n).map { i in
             let t = Double(i) / rate
-            h[i] = exp(-t / 0.0016) * (0.55 * sin(2 * .pi * ring * t) + 0.3 * sin(2 * .pi * ring * 1.53 * t))
-                + 0.35 * exp(-t / 0.005) * sin(2 * .pi * body * t)
+            let noise = rng.nextUnit() * 2 - 1
+            // Two low-pass stages keep the contact soft (corner around 1 kHz).
+            lp1 += (noise - lp1) * 0.17
+            lp2 += (lp1 - lp2) * 0.17
+            let contact = lp2 * exp(-t / 0.005) * 3.2
+            let thump = sin(2 * .pi * body * t) * exp(-t / 0.016) + 0.45 * sin(2 * .pi * body * 2.1 * t) * exp(-t / 0.008)
+            let attack = min(1, t / 0.0015)
+            return Float(attack * (thump + contact))
         }
-        for s in steps {
-            let gain = 0.85 + 0.3 * rng.nextUnit()
-            for i in 0..<hLen where s + i < n {
-                out[s + i] += gain * (h[i] + 0.05 * (rng.nextUnit() * 2 - 1) * exp(-Double(i) / rate / 0.002))
-            }
-        }
-        return out.map { Float($0) }
     }
 
-    /// The thermal head touches the paper: a very short, soft tick.
-    private static func tick(seed: UInt64, level: Double, bright: Bool = false) -> [Float] {
-        let n = Int(0.02 * rate)
+    /// The motor moves the head: a quiet, low purr with a soft rise and fall.
+    private static func purr(duration: Double, seed: UInt64, level: Double, low: Bool = false) -> [Float] {
+        let n = Int((duration + 0.02) * rate)
+        var rng = SplitMix64(seed: seed)
+        var lp1 = 0.0, lp2 = 0.0
+        var phase = 0.0
+        let base = low ? 150.0 : 210.0
+        return (0..<n).map { i in
+            let t = Double(i) / rate
+            let x = min(1, t / duration)
+            let env = sin(.pi * x) * sin(.pi * x)
+            let f = base * (1 + 0.6 * sin(.pi * x))
+            phase += f / rate
+            let tone = sin(2 * .pi * phase) + 0.3 * sin(4 * .pi * phase) + 0.1 * sin(6 * .pi * phase)
+            let noise = rng.nextUnit() * 2 - 1
+            lp1 += (noise - lp1) * 0.09
+            lp2 += (lp1 - lp2) * 0.09
+            return Float(level * env * (0.55 * tone + 2.5 * lp2))
+        }
+    }
+
+    /// Carriage return: a calm, low glide, like a damped breath of air moving left.
+    private static func glide(duration: Double, seed: UInt64) -> [Float] {
+        let n = Int(duration * rate)
+        var rng = SplitMix64(seed: seed)
+        var lp1 = 0.0, lp2 = 0.0
+        var phase = 0.0
+        return (0..<n).map { i in
+            let t = Double(i) / rate
+            let x = t / duration
+            let env = pow(sin(.pi * x), 1.5)
+            // The low-pass opens a little in the middle, as the speed rises.
+            let k = 0.04 + 0.05 * sin(.pi * x)
+            let noise = rng.nextUnit() * 2 - 1
+            lp1 += (noise - lp1) * k
+            lp2 += (lp1 - lp2) * k
+            phase += (170 + 110 * sin(.pi * x)) / rate
+            return Float(env * (2.4 * lp2 + 0.3 * sin(2 * .pi * phase) + 0.1 * sin(4 * .pi * phase)))
+        }
+    }
+
+    /// The head comes to rest at the margin: a soft, felted stop.
+    private static func settle(seed: UInt64) -> [Float] {
+        let n = Int(0.12 * rate)
         var rng = SplitMix64(seed: seed)
         var lp = 0.0
         return (0..<n).map { i in
             let t = Double(i) / rate
             let noise = rng.nextUnit() * 2 - 1
-            lp += (noise - lp) * (bright ? 0.6 : 0.35)
-            let click = (noise - lp) * exp(-t / 0.0015)
-            let thud = sin(2 * .pi * 190 * t) * exp(-t / 0.006) * 0.6
-            return Float(level * (click + thud))
+            lp += (noise - lp) * 0.14
+            return Float(min(1, t / 0.002) * (sin(2 * .pi * 230 * t) * exp(-t / 0.03) + 1.5 * lp * exp(-t / 0.006)))
         }
     }
 
-    /// An electronic margin beep.
-    private static func beep() -> [Float] {
-        let n = Int(0.12 * rate)
+    /// A warm, quiet margin chime: two low partials with a soft attack, like a small felt-struck gong.
+    private static func chime() -> [Float] {
+        let n = Int(0.7 * rate)
         return (0..<n).map { i in
             let t = Double(i) / rate
-            let env = min(1, t / 0.004) * min(1, (0.12 - t) / 0.03)
-            return Float(env * (sin(2 * .pi * 1760 * t) + 0.12 * sin(2 * .pi * 5280 * t)))
+            let env = min(1, t / 0.012) * exp(-t / 0.22)
+            return Float(env * (sin(2 * .pi * 523.25 * t) + 0.35 * sin(2 * .pi * 784 * t) * exp(-t / 0.12)
+                                + 0.12 * sin(2 * .pi * 1046.5 * t) * exp(-t / 0.06)))
         }
     }
 
