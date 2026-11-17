@@ -26,12 +26,13 @@ enum CarriageGeometry {
     static let status = CGPoint(x: 1300, y: 578)
 }
 
-/// Rows of the rail image (origin top left): polished lip, dark groove, face.
+/// Rows of the rail image (origin top left): polished lip, dark recessed groove, then the face,
+/// which starts with a fine highlight right below the groove.
 enum RailGeometry {
-    static let top: CGFloat = 428
-    static let grooveTop: CGFloat = 458
-    static let grooveBottom: CGFloat = 468
-    static let bottom: CGFloat = 527
+    static let top: CGFloat = 309
+    static let grooveTop: CGFloat = 337
+    static let grooveBottom: CGFloat = 355
+    static let bottom: CGFloat = 413
 }
 
 /// One hardware color. All colors share the same images; they are tinted from the rose gold originals.
@@ -88,13 +89,13 @@ enum Hardware {
               let hole = image(dir.appendingPathComponent("grille-hole.png")) else { return nil }
         let railBand = rail.cropping(to: CGRect(x: 0, y: RailGeometry.top, width: CGFloat(rail.width),
                                                 height: RailGeometry.bottom - RailGeometry.top)) ?? rail
-        // The hardware sits in the dim, warm dusk of the room, so it is darker than the studio-lit images.
         let tintedCarriage = entry.color.map { tint(carriage, to: $0) ?? carriage } ?? carriage
         let tintedRail = entry.color.map { tint(railBand, to: $0) ?? railBand } ?? railBand
-        let shaded = multiply(tintedCarriage, by: (0.84, 0.78, 0.78)) ?? tintedCarriage
+        // The front of the carriage faces the viewer and is a little darker than the rail.
+        let shaded = multiply(tintedCarriage, by: (0.92, 0.88, 0.9)) ?? tintedCarriage
         let v = HardwareVariant(id: id, title: entry.title,
                                 carriage: extend(shaded) ?? shaded,
-                                rail: multiply(tintedRail, by: (0.96, 0.9, 0.9)) ?? tintedRail,
+                                rail: tintedRail,
                                 lamp: extend(lamp) ?? lamp, status: extend(status) ?? status, grilleHole: hole)
         cache[id] = v
         return v
