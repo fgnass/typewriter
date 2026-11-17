@@ -103,7 +103,8 @@ enum Hardware {
               let hole = image(dir.appendingPathComponent("grille-hole.png")) else { return nil }
         let railBand = rail.cropping(to: CGRect(x: 0, y: RailGeometry.top, width: CGFloat(rail.width),
                                                 height: RailGeometry.bottom - RailGeometry.top)) ?? rail
-        let tintedCarriage = entry.color.map { tint(carriage, to: $0) ?? carriage } ?? carriage
+        // Rose gold: the carriage image is a little more yellow than the rail, so it is tinted to the rail's hue.
+        let tintedCarriage = tint(carriage, to: entry.color ?? railRoseGold) ?? carriage
         let tintedRail = entry.color.map { tint(railBand, to: $0) ?? railBand } ?? railBand
         // The front of the carriage faces the viewer and is a little darker than the rail.
         // Neutral, so it does not shift the hue of any color.
@@ -120,6 +121,8 @@ enum Hardware {
 
     /// Mean color of the rose gold metal, the reference for tinting.
     private static let roseGold = (r: 0.86, g: 0.72, b: 0.64)
+    /// Mean color of the rose gold rail, measured on its lip and face.
+    private static let railRoseGold = (r: 0.875, g: 0.698, b: 0.638)
 
     /// Recolors the rose gold metal to another hardware color and keeps the shading:
     /// darker pixels scale the target color down, brighter pixels blend it toward white.
