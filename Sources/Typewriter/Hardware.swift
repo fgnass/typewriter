@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import UniformTypeIdentifiers
 import ImageIO
 
 /// Positions in the carriage images (1774 × 887 px, origin top left). All carriage layers share this canvas.
@@ -77,9 +78,10 @@ enum Hardware {
     private static let directory = Bundle.main.resourceURL?.appendingPathComponent("Fin")
     private static var cache: [String: HardwareVariant] = [:]
 
+    /// The chosen color, or the color of this Mac when the user has not chosen one.
     static var currentID: String {
         get {
-            let id = UserDefaults.standard.string(forKey: "hardware") ?? "gold"
+            let id = UserDefaults.standard.string(forKey: "hardware") ?? detectedID ?? "gold"
             return ids.contains { $0.id == id } ? id : "gold"
         }
         set {
@@ -89,6 +91,35 @@ enum Hardware {
     }
 
     static let didChange = Notification.Name("HardwareDidChange")
+
+    /// The housing color of this Mac, as macOS knows it for the device picture in "About This Mac":
+    /// the model and the enclosure color number map to a device type such as
+    /// "com.apple.macbookair-late-2020-gold", whose name contains the color.
+    static let detectedID: String? = {
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        var buf = [CChar](repeating: 0, count: max(size, 1))
+        sysctlbyname("hw.model", &buf, &size, nil, 0)
+        let model = String(cString: buf)
+        typealias MGCopyAnswer = @convention(c) (CFString) -> Unmanaged<CFTypeRef>?
+        guard !model.isEmpty,
+              let lib = dlopen("/usr/lib/libMobileGestalt.dylib", RTLD_NOW),
+              let sym = dlsym(lib, "MGCopyAnswer"),
+              let answer = unsafeBitCast(sym, to: MGCopyAnswer.self)("DeviceEnclosureColor" as CFString)?.takeRetainedValue()
+        else { return nil }
+        let color = "\(answer)"
+        guard let type = UTType(tag: "\(model)@ECOLOR=\(color)", tagClass: UTTagClass(rawValue: "com.apple.device-model-code"), conformingTo: nil)
+        else { return nil }
+        let names = ([type.identifier] + type.supertypes.map(\.identifier)).joined(separator: " ").lowercased()
+        // Longer names first, so "sky-blue" is not taken for "blue" and "space-gray" not for "gray".
+        let keywords: [(String, String)] = [
+            ("space-black", "space-black"), ("space-gray", "space-gray"), ("space-grey", "space-gray"),
+            ("sky-blue", "sky-blue"), ("midnight", "midnight"), ("starlight", "starlight"),
+            ("rose-gold", "gold"), ("gold", "gold"), ("silver", "silver"),
+            ("blush", "blush"), ("pink", "blush"), ("indigo", "indigo"), ("citrus", "citrus"), ("yellow", "citrus"),
+        ]
+        return keywords.first { names.contains($0.0) }?.1
+    }()
 
     /// The color for a preview circle.
     static func swatchColor(_ id: String) -> NSColor {

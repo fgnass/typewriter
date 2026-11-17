@@ -7,23 +7,32 @@ final class SoundEngine {
     }
 
     enum Style: String, CaseIterable {
-        case thermal, electric
-        var title: String { self == .thermal ? "Thermal" : "Electric" }
+        case none, mechanical, electric, thermal
+        var title: String { rawValue.capitalized }
+        /// Folder of the recorded sounds in the app bundle.
+        var folder: String? {
+            switch self {
+            case .mechanical: return "Sounds-mechanical"
+            case .electric: return "Sounds-electric"
+            case .none, .thermal: return nil
+            }
+        }
     }
 
-    /// The sound style. Changing it reloads the sounds.
+    /// The sound style; `none` is silent. Changing it reloads the sounds.
     var style: Style {
-        get { Style(rawValue: UserDefaults.standard.string(forKey: "soundStyle") ?? "") ?? .thermal }
+        get {
+            if UserDefaults.standard.object(forKey: "soundEnabled") as? Bool == false { return .none }
+            return Style(rawValue: UserDefaults.standard.string(forKey: "soundStyle") ?? "") ?? .thermal
+        }
         set {
+            UserDefaults.standard.removeObject(forKey: "soundEnabled")
             UserDefaults.standard.set(newValue.rawValue, forKey: "soundStyle")
             loadSamples()
         }
     }
 
-    var enabled: Bool {
-        get { UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "soundEnabled") }
-    }
+    var enabled: Bool { style != .none }
 
     private let engine = AVAudioEngine()
     private let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
@@ -58,15 +67,6 @@ final class SoundEngine {
                 let url = dir.appendingPathComponent("\(kind.rawValue)\(i + 1).wav")
                 if let f = try? AVAudioFile(forWriting: url, settings: b.format.settings) { try? f.write(from: b) }
             }
-        }
-        // All print sound candidates, to compare them side by side.
-        for (n, v) in ThermalSynth.PrintSound.allCases.enumerated() {
-            let samples = ThermalSynth.printSound(variant: v, index: 0)
-            guard let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else { continue }
-            b.frameLength = AVAudioFrameCount(samples.count)
-            for ch in 0..<Int(format.channelCount) { for (i, x) in samples.enumerated() { b.floatChannelData![ch][i] = x } }
-            let url = dir.appendingPathComponent("print-\(n + 1)-\(v.rawValue).wav")
-            if let f = try? AVAudioFile(forWriting: url, settings: b.format.settings) { try? f.write(from: b) }
         }
     }
 
@@ -135,11 +135,16 @@ final class SoundEngine {
         buffers = [:]
         volumeScale = [:]
         lastVariant = [:]
-        if style == .thermal {
+        switch style {
+        case .none:
+            return
+        case .thermal:
             for kind in Kind.allCases { buffers[kind] = ThermalSynth.make(kind, format: format) }
             return
+        case .mechanical, .electric:
+            break
         }
-        let dir = Bundle.main.resourceURL?.appendingPathComponent("Sounds")
+        let dir = style.folder.flatMap { Bundle.main.resourceURL?.appendingPathComponent($0) }
         let files = (dir.flatMap { try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil) }) ?? []
         for kind in Kind.allCases {
             let matching = files.filter {

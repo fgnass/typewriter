@@ -10,29 +10,13 @@ final class SettingsModel: ObservableObject {
     @Published var hardwareID = Hardware.currentID {
         didSet { if Hardware.currentID != hardwareID { Hardware.currentID = hardwareID } }
     }
-    @Published var soundEnabled = true {
-        didSet { sounds?.enabled = soundEnabled }
-    }
     @Published var style = SoundEngine.Style.thermal {
         didSet {
             guard let sounds, sounds.style != style else { return }
             sounds.style = style
             sounds.play(.key)
-            hasHum = sounds.hasHum
         }
     }
-    @Published var printSound = ThermalSynth.PrintSound.current {
-        didSet {
-            guard printSound != ThermalSynth.PrintSound.current else { return }
-            ThermalSynth.PrintSound.current = printSound
-            sounds?.reload()
-            sounds?.play(.key)
-        }
-    }
-    @Published var hum = false {
-        didSet { sounds?.humEnabled = hum }
-    }
-    @Published var hasHum = false
     @Published var light = LightSettings.current {
         didSet { if light != LightSettings.current { LightSettings.current = light } }
     }
@@ -47,12 +31,8 @@ final class SettingsModel: ObservableObject {
     func reload() {
         hardwareID = Hardware.currentID
         light = LightSettings.current
-        printSound = ThermalSynth.PrintSound.current
         guard let sounds else { return }
-        soundEnabled = sounds.enabled
         style = sounds.style
-        hum = sounds.humEnabled
-        hasHum = sounds.hasHum
     }
 }
 
@@ -76,18 +56,10 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Sound") {
-                Toggle("Sounds", isOn: $model.soundEnabled)
-                Picker("Style", selection: $model.style) {
+            Section {
+                Picker("Sound", selection: $model.style) {
                     ForEach(SoundEngine.Style.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                .disabled(!model.soundEnabled)
-                Picker("Print sound", selection: $model.printSound) {
-                    ForEach(ThermalSynth.PrintSound.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .disabled(!model.soundEnabled || model.style != .thermal)
-                Toggle("Motor hum", isOn: $model.hum)
-                    .disabled(!model.soundEnabled || !model.hasHum)
             }
 
             Section {

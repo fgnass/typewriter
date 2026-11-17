@@ -9,11 +9,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Typewriter "$APP/Contents/MacOS/"
 cp Resources/Info.plist "$APP/Contents/"
 cp -R Resources/Fin "$APP/Contents/Resources/Fin"
-# Sound set: TYPEWRITER_SOUNDS=electric uses Resources/Sounds-electric, otherwise Resources/Sounds.
-SOUNDS=Resources/Sounds
-if [[ "${TYPEWRITER_SOUNDS:-electric}" == electric && -d Resources/Sounds-electric ]]; then SOUNDS=Resources/Sounds-electric; fi
-if [[ -d "$SOUNDS" ]]; then cp -R "$SOUNDS" "$APP/Contents/Resources/Sounds"; fi
-echo "Sounds: $SOUNDS"
+# All recorded sound sets; the user picks one in the settings.
+for set in Resources/Sounds-*; do cp -R "$set" "$APP/Contents/Resources/"; done
 IDENTITY="${TYPEWRITER_SIGN_IDENTITY:--}"
 codesign --force --sign "$IDENTITY" --identifier com.fgnass.typewriter "$APP"
 echo "Built $APP"
