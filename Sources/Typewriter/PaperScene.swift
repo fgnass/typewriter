@@ -90,9 +90,9 @@ struct Metrics {
         left + CGFloat(min(col, columns)) * charWidth
     }
 
-    /// The print point follows the last written character: it is the center of the cell before the caret.
+    /// The print point is where the next character will appear: the center of the caret cell.
     func printX(caretCol: Int) -> CGFloat {
-        cellX(col: caretCol) - charWidth / 2
+        cellX(col: caretCol) + charWidth / 2
     }
 }
 
@@ -472,7 +472,7 @@ final class PaperScene {
     /// falloff, plus a small bright area right at the print point. Outside the fan the paper gets the
     /// dimmer ambient light. Dithered against banding.
     static func makeLightImage(metrics m: Metrics, settings s: LightSettings) -> CGImage? {
-        let step = 2.0
+        let step = 1.0
         let W = Double(m.size.width)
         let paperH = Double(m.size.height - m.bandHeight)
         let w = Int(W * 2 / step), h = Int(paperH / step)
@@ -499,8 +499,9 @@ final class PaperScene {
                 var beam = 0.0
                 if v > 0 {
                     let angle = atan2(abs(u), v)
-                    // The edge gets softer with distance, like a real penumbra.
-                    let edge = soft * min(1, 0.25 + d / (0.5 * paperH))
+                    // The edge gets softer with distance, like a real penumbra. It is never narrower
+                    // than about 2 pt, so it never shows the pixel grid.
+                    let edge = max(soft * min(1, 0.25 + d / (0.5 * paperH)), 2 / max(d, 1))
                     beam = 1 - smooth(half - edge, half + edge, angle)
                 }
                 let falloff = exp(-(d / reach) * (d / reach))
