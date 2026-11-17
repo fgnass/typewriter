@@ -17,6 +17,7 @@ cp "$BIN" "$APP/Contents/MacOS/Typewriter"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 cp -R Resources/Fin "$APP/Contents/Resources/Fin"
+cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
 # All recorded sound sets; the user picks one in the settings.
 for set in Resources/Sounds-*; do cp -R "$set" "$APP/Contents/Resources/"; done
 

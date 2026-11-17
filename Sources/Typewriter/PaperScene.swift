@@ -47,7 +47,13 @@ struct Metrics {
     let baseline: CGFloat
     let linePadding: CGFloat = 24
 
-    static let fontName = "Courier New" as CFString
+    /// Drafting* Mono (SIL Open Font License), bundled in Resources/Fonts.
+    static let fontName: CFString = {
+        if let url = Bundle.main.url(forResource: "DraftingMono-Regular", withExtension: "ttf", subdirectory: "Fonts") {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+        return "DraftingMono-Regular" as CFString
+    }()
 
     init(size: CGSize, columns: Int = 72) {
         self.size = size

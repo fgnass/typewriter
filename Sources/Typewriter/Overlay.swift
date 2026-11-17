@@ -143,7 +143,7 @@ enum HUD {
         current?.orderOut(nil)
         guard let screen = NSScreen.screens.first else { return }
         let label = NSTextField(labelWithString: text)
-        label.font = NSFont(name: "Courier", size: 15) ?? .systemFont(ofSize: 15)
+        label.font = NSFont(name: Metrics.fontName as String, size: 15) ?? .systemFont(ofSize: 15)
         label.textColor = .white
         label.sizeToFit()
         let size = CGSize(width: label.frame.width + 40, height: label.frame.height + 22)
