@@ -24,6 +24,9 @@ enum CarriageGeometry {
     static let lampStart = CGPoint(x: 226, y: 503)
     static let lampEnd = CGPoint(x: 1134, y: 500)
     static let status = CGPoint(x: 1300, y: 578)
+    /// The lamp strip continues on the top of the foot right of the fin.
+    static let rightLampStart: CGFloat = 1378
+    static let rightLampEnd: CGFloat = 1545
 }
 
 /// Rows of the rail image (origin top left): polished lip, dark recessed groove, then the face,

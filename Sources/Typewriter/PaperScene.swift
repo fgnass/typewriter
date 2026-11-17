@@ -38,6 +38,9 @@ struct Metrics {
     let lampOffsetX: CGFloat
     /// Half length of the lamp strip.
     let lampHalfLength: CGFloat
+    /// The second lamp segment on the foot right of the fin, relative to the print point.
+    let rightLampOffsetX: CGFloat
+    let rightLampHalfLength: CGFloat
     let xHeight: CGFloat
 
     let baselineY: CGFloat
@@ -92,6 +95,8 @@ struct Metrics {
         carriageCenterOffset = ((C.bodyLeft + C.bodyRight) / 2 - C.finCenter) * s
         lampOffsetX = ((C.lampStart.x + C.lampEnd.x) / 2 - C.finCenter) * s
         lampHalfLength = (C.lampEnd.x - C.lampStart.x) / 2 * s
+        rightLampOffsetX = ((C.rightLampStart + C.rightLampEnd) / 2 - C.finCenter) * s
+        rightLampHalfLength = (C.rightLampEnd - C.rightLampStart) / 2 * s
         // The current line sits above the body with some air below the descenders.
         baselineY = (printY + descent + charWidth * 0.8).rounded()
         baseline = (lineHeight * 0.32).rounded()
@@ -323,7 +328,8 @@ final class PaperScene {
 
         // The light falls on paper and ink alike, so it multiplies everything below it.
         // It never brightens, so the ink keeps its contrast.
-        light.contents = Self.makeLightImage(metrics: m, settings: lightSettings)
+        // A quick coarse light first, so the page opens at once; the fine version follows in the background.
+        light.contents = Self.makeLightImage(metrics: m, settings: lightSettings, step: 3)
         light.contentsGravity = .resize
         light.anchorPoint = CGPoint(x: 0.5, y: 0)
         light.bounds = CGRect(x: 0, y: 0, width: m.size.width * 2, height: m.size.height - m.bandHeight)
@@ -353,6 +359,24 @@ final class PaperScene {
         noticeLayer.opacity = 0
 
         applyLightTint()
+        renderLight(lightSettings)
+    }
+
+    /// Renders the light in full resolution in the background and shows it when it is ready.
+    private func renderLight(_ settings: LightSettings) {
+        lightGeneration += 1
+        let generation = lightGeneration
+        let m = metrics
+        DispatchQueue.global(qos: .userInitiated).async {
+            let image = Self.makeLightImage(metrics: m, settings: settings)
+            DispatchQueue.main.async {
+                guard generation == self.lightGeneration else { return }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.light.contents = image
+                CATransaction.commit()
+            }
+        }
     }
 
     /// The head group. Its origin is the print point (center of the fin, top of the body),
@@ -420,6 +444,20 @@ final class PaperScene {
         strip.shadowOffset = CGSize(width: 0, height: 3)
         lampLayer.addSublayer(strip)
         lampStrip = strip
+        // The strip continues on the foot right of the fin.
+        let rightStrip = CAGradientLayer()
+        rightStrip.colors = strip.colors
+        rightStrip.locations = [0, 0.08, 0.92, 1]
+        rightStrip.startPoint = strip.startPoint
+        rightStrip.endPoint = strip.endPoint
+        rightStrip.frame = CGRect(x: CarriageGeometry.rightLampStart * s, y: strip.frame.minY,
+                                  width: (CarriageGeometry.rightLampEnd - CarriageGeometry.rightLampStart) * s,
+                                  height: strip.frame.height)
+        rightStrip.shadowColor = strip.shadowColor
+        rightStrip.shadowOpacity = strip.shadowOpacity
+        rightStrip.shadowRadius = strip.shadowRadius
+        rightStrip.shadowOffset = strip.shadowOffset
+        lampLayer.addSublayer(rightStrip)
         statusLayer.contents = variant.status
         statusLayer.contentsGravity = .resize
         statusLayer.frame = m.carriageFrame
@@ -516,19 +554,7 @@ final class PaperScene {
         guard settings != lightSettings else { return }
         lightSettings = settings
         applyLightTint()
-        lightGeneration += 1
-        let generation = lightGeneration
-        let m = metrics
-        DispatchQueue.global(qos: .userInteractive).async {
-            let image = Self.makeLightImage(metrics: m, settings: settings)
-            DispatchQueue.main.async {
-                guard generation == self.lightGeneration else { return }
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                self.light.contents = image
-                CATransaction.commit()
-            }
-        }
+        renderLight(settings)
     }
 
     /// The status light flashes when a character is made.
@@ -826,8 +852,7 @@ final class PaperScene {
     /// A warm ivory fan opens upward from the print point with soft side edges and a smooth distance
     /// falloff, plus a small bright area right at the print point. Outside the fan the paper gets the
     /// dimmer ambient light. Dithered against banding.
-    static func makeLightImage(metrics m: Metrics, settings s: LightSettings) -> CGImage? {
-        let step = 1.0
+    static func makeLightImage(metrics m: Metrics, settings s: LightSettings, step: Double = 1) -> CGImage? {
         let W = Double(m.size.width)
         let paperH = Double(m.size.height - m.bandHeight)
         let w = Int(W * 2 / step), h = Int(paperH / step)
@@ -848,6 +873,7 @@ final class PaperScene {
         let axis = (x: sin(tilt), y: cos(tilt))
         // The lamp sits in the body, left of the print point.
         let lampX = Double(m.lampOffsetX)
+        let rightX = Double(m.rightLampOffsetX), rightHalf = Double(m.rightLampHalfLength)
         let poolY = Double(m.baselineY + m.xHeight / 2 - m.printY)
         let poolW = cw * 1.6, poolH = Double(m.lineHeight) * 0.9
         // A rosy, peach-colored light, as measured in the approved design.
@@ -864,29 +890,33 @@ final class PaperScene {
             let v = (Double(h - 1 - row) + 0.5) * step - apexY
             for col in 0..<w {
                 let pu0 = (Double(col) + 0.5) * step - W
-                let sx = min(lampX + halfStrip, max(lampX - halfStrip, pu0 - v * axis.x / max(axis.y, 0.05)))
-                let u = pu0 - sx
-                let d = (u * u + v * v).squareRoot()
-                var beam = 0.0
-                // Angle between this point and the tilted beam axis, as seen from the lamp.
-                let along = u * axis.x + v * axis.y
-                if along > 0 {
+                // Beam from a strip segment: the strip point whose beam axis passes through this paper point,
+                // clamped to the segment. The brighter of the two segments wins.
+                func segmentBeam(_ center: Double, _ halfLen: Double) -> (beam: Double, d: Double) {
+                    let sx = min(center + halfLen, max(center - halfLen, pu0 - v * axis.x / max(axis.y, 0.05)))
+                    let u = pu0 - sx
+                    let d = (u * u + v * v).squareRoot()
+                    let along = u * axis.x + v * axis.y
+                    guard along > 0 else { return (0, d) }
                     let across = u * axis.y - v * axis.x
                     let angle = atan2(abs(across), along)
                     // The edge gets softer with distance, like a real penumbra. It is never narrower
                     // than about 2 pt, so it never shows the pixel grid.
                     let edge = max(soft * min(1, 0.25 + d / (0.5 * paperH)), 2 / max(d, 1))
-                    beam = (1 - smooth(half - edge, half + edge, angle)) * smooth(depth - 1.5, depth + 1.5, v)
+                    return ((1 - smooth(half - edge, half + edge, angle)) * smooth(depth - 1.5, depth + 1.5, v), d)
                 }
+                let left = segmentBeam(lampX, halfStrip)
+                let right = segmentBeam(rightX, rightHalf)
+                let (beam, d) = left.beam >= right.beam ? left : right
                 let falloff = exp(-(d / reach) * (d / reach))
                 // A focused pool of light on the freshly printed character, one cell left of the element.
                 let pu = pu0 + cw, pv = v - poolY
                 let pool = 0.55 * exp(-(pu * pu) / (2 * poolW * poolW) - (pv * pv) / (2 * poolH * poolH))
                 // The paper right above the lamp strip glows warm.
-                let su = max(0, abs(pu0 - lampX) - halfStrip), sv = v - depth
-                // Strongest at the right end of the strip, in the corner in front of the fin.
-                let stripPos = min(1, max(0, (pu0 - lampX + halfStrip) / (2 * halfStrip)))
-                let stripGlow = sv > -1 ? (0.35 + 0.65 * stripPos * stripPos) * exp(-(su * su + sv * sv).squareRoot() / glowReach) * smooth(-1, 1, sv) : 0
+                let su = min(max(0, abs(pu0 - lampX) - halfStrip), max(0, abs(pu0 - rightX) - rightHalf)), sv = v - depth
+                // Strongest around the fin, where both segments meet.
+                let nearFin = exp(-abs(pu0) / (halfStrip * 0.6))
+                let stripGlow = sv > -1 ? (0.35 + 0.65 * nearFin) * exp(-(su * su + sv * sv).squareRoot() / glowReach) * smooth(-1, 1, sv) : 0
                 let k = min(1, s.brightness * (beam * falloff + pool + stripGlow))
                 let i = (row * w + col) * 4
                 func q(_ x: Double) -> UInt8 { UInt8(max(0, min(255, x * 255 + (rng.nextUnit() - 0.5) * 1.5))) }
