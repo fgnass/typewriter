@@ -1,7 +1,7 @@
-// Renders Resources/AppIcon.icns from Resources/Icon/source.png (a square crop of the
-// real page: the carriage on the rail and the light cone).
+// Renders Resources/AppIcon.icns: the light cone from Resources/Icon/source.png (a square crop of
+// the real page, just above the carriage) and a large T in Drafting* Mono, like the menu bar icon.
 // Run: swift scripts/make-icon.swift [preview.png]
-// The source is a 1150 × 1150 crop of a full-screen screenshot of the page.
+// The source is a 1400 × 1400 crop of a full-screen screenshot of the page.
 import AppKit
 import CoreImage
 
@@ -20,6 +20,9 @@ let source: NSImage = {
     img.addRepresentation(rep)
     return img
 }()
+let fontURL = root.appendingPathComponent("Resources/Fonts/DraftingMono-Regular.ttf")
+CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)
+let font = NSFont(name: "DraftingMono-Regular", size: 560)!
 let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("AppIcon.iconset")
 try? fm.removeItem(at: iconset)
 try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
@@ -58,6 +61,13 @@ func render(_ size: Int) -> Data {
     c.setBlendMode(.multiply)
     c.drawLinearGradient(shade, start: CGPoint(x: 0, y: tile.maxY), end: CGPoint(x: 0, y: tile.minY + 330), options: [])
     c.setBlendMode(.normal)
+    // The letter, in the ink of the page, in the light of the lamp.
+    let letter = NSAttributedString(string: "T", attributes: [
+        .font: font, .foregroundColor: NSColor(srgbRed: 0.17, green: 0.15, blue: 0.19, alpha: 1)])
+    let line = CTLineCreateWithAttributedString(letter)
+    let glyph = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+    c.textPosition = CGPoint(x: tile.midX - glyph.midX, y: tile.midY - glyph.midY + 30)
+    CTLineDraw(line, c)
     // A faint inner edge, so the light tile stands out on a light Dock.
     c.addPath(path)
     c.setStrokeColor(CGColor(gray: 0, alpha: 0.12))

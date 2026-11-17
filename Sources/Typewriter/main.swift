@@ -58,10 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.item(withTag: 1)?.isEnabled = overlay.lastPage != nil
     }
 
-    /// A serif capital T as a template image, so the menu bar tints it.
+    /// The T of the page font as a template image, so the menu bar tints it.
     private static func menuBarIcon() -> NSImage {
-        let base = NSFont.systemFont(ofSize: 17, weight: .semibold)
-        let font = base.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: 17) } ?? base
+        let font = NSFont(name: Metrics.fontName as String, size: 19) ?? .systemFont(ofSize: 17, weight: .semibold)
         let text = NSAttributedString(string: "T", attributes: [.font: font, .foregroundColor: NSColor.black])
         let glyph = text.size()
         let size = NSSize(width: ceil(glyph.width) + 2, height: 18)
