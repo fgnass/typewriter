@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import CoreGraphics
 import ImageIO
 
@@ -72,7 +72,18 @@ enum Hardware {
             let id = UserDefaults.standard.string(forKey: "hardware") ?? "gold"
             return ids.contains { $0.id == id } ? id : "gold"
         }
-        set { UserDefaults.standard.set(newValue, forKey: "hardware") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "hardware")
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+
+    static let didChange = Notification.Name("HardwareDidChange")
+
+    /// The color for a preview circle.
+    static func swatchColor(_ id: String) -> NSColor {
+        let c = ids.first { $0.id == id }?.color ?? roseGold
+        return NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)
     }
 
     static var current: HardwareVariant? { variant(currentID) }

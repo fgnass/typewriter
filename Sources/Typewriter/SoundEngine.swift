@@ -81,13 +81,20 @@ final class SoundEngine {
 
     var humEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "humEnabled") }
-        set { UserDefaults.standard.set(newValue, forKey: "humEnabled") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "humEnabled")
+            if pageOpen { newValue ? startHum() : humPlayer.stop() }
+        }
     }
+
+    /// True while the typewriter page is open, so the hum can follow the setting at once.
+    private var pageOpen = false
 
     var hasHum: Bool { !(buffers[.hum] ?? []).isEmpty }
 
     /// The quiet motor hum of an electric typewriter, looped while the page is open.
     func startHum() {
+        pageOpen = true
         guard enabled, humEnabled, let hum = buffers[.hum]?.first else { return }
         start()
         humPlayer.stop()
@@ -97,6 +104,7 @@ final class SoundEngine {
     }
 
     func stopHum() {
+        pageOpen = false
         humPlayer.stop()
     }
 

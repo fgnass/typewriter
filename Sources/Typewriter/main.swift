@@ -7,9 +7,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
     private let recentMenu = NSMenu()
-    private let colorMenu = NSMenu()
-    private let styleMenu = NSMenu()
-    private let printMenu = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ⌘^ : keycode 10 is the key left of "1" on ISO keyboards (German "^").
@@ -20,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sounds.export(to: URL(fileURLWithPath: dir))
             exit(0)
         }
+        SettingsPanel.shared.sounds = sounds
         setupMenu()
         if !Inserter.isTrusted { Inserter.requestTrust() }
         if CommandLine.arguments.contains("--open") {
@@ -36,32 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         open.keyEquivalentModifierMask = .command
         open.target = self
         menu.addItem(open)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
         menu.addItem(.separator())
-        let sound = NSMenuItem(title: "Sounds", action: #selector(toggleSound), keyEquivalent: "")
-        sound.target = self
-        sound.tag = 1
-        menu.addItem(sound)
-        let styleItem = NSMenuItem(title: "Sound Style", action: nil, keyEquivalent: "")
-        styleItem.submenu = styleMenu
-        styleItem.indentationLevel = 1
-        menu.addItem(styleItem)
-        let printItem = NSMenuItem(title: "Print Sound", action: nil, keyEquivalent: "")
-        printItem.submenu = printMenu
-        printItem.indentationLevel = 1
-        menu.addItem(printItem)
-        if sounds.hasHum {
-            let hum = NSMenuItem(title: "Motor Hum", action: #selector(toggleHum), keyEquivalent: "")
-            hum.target = self
-            hum.tag = 3
-            hum.indentationLevel = 1
-            menu.addItem(hum)
-        }
-        let colorItem = NSMenuItem(title: "Hardware Color", action: nil, keyEquivalent: "")
-        colorItem.submenu = colorMenu
-        menu.addItem(colorItem)
-        let lightItem = NSMenuItem(title: "Light Settings…", action: #selector(showLight), keyEquivalent: ",")
-        lightItem.target = self
-        menu.addItem(lightItem)
         let recent = NSMenuItem(title: "Recent Pages", action: nil, keyEquivalent: "")
         recent.submenu = recentMenu
         menu.addItem(recent)
@@ -80,36 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.item(withTag: 1)?.state = sounds.enabled ? .on : .off
-        menu.item(withTag: 3)?.state = sounds.humEnabled ? .on : .off
         if Inserter.isTrusted, let ax = menu.item(withTag: 2) { menu.removeItem(ax) }
-        styleMenu.removeAllItems()
-        for (i, st) in SoundEngine.Style.allCases.enumerated() {
-            let item = NSMenuItem(title: st.title, action: #selector(selectStyle(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = i
-            item.state = st == sounds.style ? .on : .off
-            styleMenu.addItem(item)
-        }
-        printMenu.removeAllItems()
-        printMenu.autoenablesItems = false
-        for (i, v) in ThermalSynth.PrintSound.allCases.enumerated() {
-            let item = NSMenuItem(title: "\(i + 1). \(v.title)", action: #selector(selectPrintSound(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = i
-            item.state = v == ThermalSynth.PrintSound.current ? .on : .off
-            item.isEnabled = sounds.style == .thermal
-            printMenu.addItem(item)
-        }
-        colorMenu.removeAllItems()
-        for (i, c) in Hardware.ids.enumerated() {
-            if i == 7 { colorMenu.addItem(.separator()) } // MacBook colors first, then MacBook Neo colors.
-            let item = NSMenuItem(title: c.title, action: #selector(selectColor(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = i
-            item.state = c.id == Hardware.currentID ? .on : .off
-            colorMenu.addItem(item)
-        }
         recentMenu.removeAllItems()
         let pages = History.recent()
         if pages.isEmpty {
@@ -125,17 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openTypewriter() { overlay.show() }
-    @objc private func selectColor(_ sender: NSMenuItem) { Hardware.currentID = Hardware.ids[sender.tag].id }
-    @objc private func showLight() { LightPanel.shared.toggle() }
-    @objc private func selectStyle(_ sender: NSMenuItem) { sounds.style = SoundEngine.Style.allCases[sender.tag] }
-    @objc private func selectPrintSound(_ sender: NSMenuItem) {
-        let v = ThermalSynth.PrintSound.allCases[sender.tag]
-        ThermalSynth.PrintSound.current = v
-        sounds.reload()
-        sounds.play(.key) // Let the user hear it right away.
-    }
-    @objc private func toggleSound() { sounds.enabled.toggle() }
-    @objc private func toggleHum() { sounds.humEnabled.toggle() }
+    @objc private func showSettings() { SettingsPanel.shared.toggle() }
     @objc private func showHistory() { NSWorkspace.shared.open(History.directory) }
     @objc private func requestAccess() { Inserter.requestTrust() }
 

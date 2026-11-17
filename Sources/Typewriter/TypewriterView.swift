@@ -17,6 +17,7 @@ final class TypewriterView: NSView, NSTextInputClient {
     private let scale: CGFloat
     private var hint: String
     private var lightObserver: NSObjectProtocol?
+    private var hardwareObserver: NSObjectProtocol?
 
     private var marked: String = ""
     private var bellRungOnLine = -1
@@ -39,6 +40,9 @@ final class TypewriterView: NSView, NSTextInputClient {
         lightObserver = NotificationCenter.default.addObserver(forName: LightSettings.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.scene.updateLight(LightSettings.current)
         }
+        hardwareObserver = NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
+            if let v = Hardware.current { self?.reloadScene(variant: v) }
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             CATransaction.begin()
@@ -52,6 +56,7 @@ final class TypewriterView: NSView, NSTextInputClient {
 
     deinit {
         if let lightObserver { NotificationCenter.default.removeObserver(lightObserver) }
+        if let hardwareObserver { NotificationCenter.default.removeObserver(hardwareObserver) }
     }
 
     /// Builds the scene again for another hardware variant. The text stays.
@@ -142,17 +147,15 @@ final class TypewriterView: NSView, NSTextInputClient {
         case 123: changeHardware(-1)
         case 124: changeHardware(1)
         default:
-            // ⌘, shows the light settings. The panel does not take the keyboard focus.
-            if event.charactersIgnoringModifiers == "," { LightPanel.shared.toggle() }
+            // ⌘, shows the settings. The panel does not take the keyboard focus.
+            if event.charactersIgnoringModifiers == "," { SettingsPanel.shared.toggle() }
         }
         return true // Swallow all other command shortcuts.
     }
 
     private func changeHardware(_ step: Int) {
-        Hardware.cycle(step)
-        guard let v = Hardware.current else { return }
-        reloadScene(variant: v)
-        showNotice(v.title, duration: 1.5)
+        Hardware.cycle(step) // The scene follows through the change notification.
+        if let v = Hardware.current { showNotice(v.title, duration: 1.5) }
     }
 
     override func keyDown(with event: NSEvent) {
