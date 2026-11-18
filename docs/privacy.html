@@ -14,7 +14,7 @@
     font-weight: 100 700;
     font-display: swap;
   }
-  :root { --bg: #ebe6ee; --ink: #2a2530; --muted: #6f6677; --line: rgba(42, 37, 48, 0.14); }
+  :root { --bg: #ebe6ee; --ink: #2a2530; --muted: #685f70; --line: rgba(42, 37, 48, 0.14); }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     color: var(--ink);
@@ -45,6 +45,7 @@
 <div class="wrap">
   <a class="brand" href="./"><img src="icon.png" width="512" height="512" alt=""><span>Typewriter</span></a>
 
+  <main>
   <h1>Privacy</h1>
   <p class="lead">Typewriter is a free, non-commercial hobby project. There are no ads, nothing is for sale, and there is no business behind it.</p>
 
@@ -55,8 +56,9 @@
   <p>Typewriter runs only on your Mac. It reads your keys only while the page is open. When you close the page, the text goes into the field you came from, or to the clipboard.</p>
   <ul>
     <li>No text, key press or other content is sent to me or to any server.</li>
-    <li>Your text is never written to disk. Only the last page stays in memory, for Copy Last Page in the menu, until you quit the app.</li>
-    <li>To insert the text, Typewriter puts it on the clipboard for a moment, presses <kbd>⌘V</kbd> in the app you came from and then puts your old clipboard back. For this it needs the Accessibility permission. It also uses the permission to see if the focus was in a text field. It reads no content from other apps.</li>
+    <li>Typewriter saves no files with your text. Only the last page stays in memory, for Copy Last Page in the menu, until you quit the app.</li>
+    <li>To insert the text, Typewriter keeps a copy of your current clipboard in memory, puts the text on the clipboard for a moment, presses <kbd>⌘V</kbd> in the app you came from and then puts your old clipboard back. For this it needs the Accessibility permission. It also uses the permission to see if the focus is in a text field. Apart from your clipboard, it reads no content from other apps.</li>
+    <li>What happens to the text after that is outside of Typewriter: the app you write into keeps it, and a clipboard manager or Universal Clipboard (Handoff) can keep or sync it while it is on the clipboard. Text that goes to the clipboard (when there is no text field) stays there until you copy something else.</li>
     <li>The settings (color, sound, light, Do Not Disturb) are kept in the normal preferences of the app on your Mac. They contain none of your text.</li>
     <li>The app has no analytics, no crash reports and no update checks. It does not connect to the internet.</li>
   </ul>
@@ -79,6 +81,7 @@
   <p>Under the GDPR you have the right to access, rectification, erasure, restriction of processing, data portability and to object. Write me an e-mail for this. You can also complain to a data protection supervisory authority, for example the Hamburg Commissioner for Data Protection and Freedom of Information.</p>
 
   <p class="updated">Last updated: November 2026</p>
+  </main>
 
   <footer>
     <a href="./">Typewriter</a> by Felix Gnass · <a href="https://github.com/fgnass/typewriter">GitHub</a>
