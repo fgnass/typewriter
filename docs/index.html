@@ -147,11 +147,6 @@
   .quote figcaption { margin-top: 22px; color: var(--muted); }
   .quote + .after { margin: 28px auto 0; color: var(--muted); max-width: 52ch; text-align: center; }
 
-  /* ── Sound ── */
-  .sounds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 36px; }
-  .sound { background: var(--paper); border-radius: 14px; padding: 20px; box-shadow: 0 0 0 1px rgba(42, 37, 48, 0.06); }
-  .sound p { color: var(--muted); font-size: 0.95rem; }
-
   /* ── Dark band ── */
   .band { background: var(--night); color: #f3eef5; margin: 0 calc(50% - 50vw); padding: 88px 16px; }
   .band h2 { color: #fff; }
@@ -192,7 +187,6 @@
 
   @media (max-width: 860px) {
     .steps, .usps { grid-template-columns: 1fr; }
-    .sounds { grid-template-columns: repeat(2, 1fr); }
     section { padding: 56px 0; }
     .band { padding: 60px 16px; }
     .mac { margin-top: 40px; }
@@ -278,17 +272,6 @@
       <button type="button" style="--c: #dedda7" data-metal="#dedda7" aria-label="Citrus" aria-pressed="false"></button>
     </div>
     <p class="swatch-name" id="swatch-name" aria-live="polite">Rose Gold</p>
-  </section>
-
-  <section>
-    <h2>And the sound to go with it.</h2>
-    <p class="lead">Pick one in the settings.</p>
-    <div class="sounds">
-      <div class="sound"><h3>Thermal</h3><p>A soft hiss for each letter, a low purr when the head moves. Calm and warm.</p></div>
-      <div class="sound"><h3>Electric</h3><p>An electric office typewriter: short keys, a motor that returns the carriage.</p></div>
-      <div class="sound"><h3>Mechanical</h3><p>Type bars, a bell at the margin and a real carriage return.</p></div>
-      <div class="sound"><h3>None</h3><p>Only the light and the letters.</p></div>
-    </div>
   </section>
 
   <section class="band">
