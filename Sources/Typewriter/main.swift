@@ -73,6 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return image
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        FocusMode.end(wait: true)
+    }
+
     @objc private func openTypewriter() { overlay.show() }
     @objc private func showSettings() { SettingsPanel.shared.toggle() }
     @objc private func requestAccess() { Inserter.requestTrust() }

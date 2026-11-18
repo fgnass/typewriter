@@ -79,6 +79,7 @@ final class OverlayController: TypewriterViewDelegate {
         }
         sounds.play(.feed)
         sounds.startHum()
+        FocusMode.begin()
     }
 
     private func close(then: @escaping () -> Void) {
@@ -86,6 +87,7 @@ final class OverlayController: TypewriterViewDelegate {
         window = nil
         view = nil
         sounds.stopHum()
+        FocusMode.end()
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.2
             w.animator().alphaValue = 0

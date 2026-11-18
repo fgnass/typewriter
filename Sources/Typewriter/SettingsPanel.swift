@@ -20,6 +20,18 @@ final class SettingsModel: ObservableObject {
     @Published var light = LightSettings.current {
         didSet { if light != LightSettings.current { LightSettings.current = light } }
     }
+    @Published var focus = FocusMode.enabled {
+        didSet {
+            if FocusMode.enabled != focus { FocusMode.enabled = focus }
+            if focus && shortcutInstalled == false { FocusMode.install() }
+        }
+    }
+    /// Nil until checked.
+    @Published var shortcutInstalled: Bool?
+
+    func checkShortcut() {
+        FocusMode.checkInstalled { [weak self] in self?.shortcutInstalled = $0 }
+    }
 
     init() {
         NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -31,6 +43,8 @@ final class SettingsModel: ObservableObject {
     func reload() {
         hardwareID = Hardware.currentID
         light = LightSettings.current
+        focus = FocusMode.enabled
+        checkShortcut()
         guard let sounds else { return }
         style = sounds.style
     }
@@ -60,6 +74,26 @@ struct SettingsView: View {
                 Picker("Sound", selection: $model.style) {
                     ForEach(SoundEngine.Style.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
+            }
+
+            Section {
+                Toggle("Do Not Disturb while writing", isOn: $model.focus)
+                if model.focus && model.shortcutInstalled == false {
+                    LabeledContent {
+                        HStack(spacing: 12) {
+                            Button("Add Shortcut…") { FocusMode.install() }
+                            Button("Check Again") { model.checkShortcut() }
+                                .buttonStyle(.link)
+                        }
+                    } label: {
+                        Text("Needs the shortcut \u{201C}\(FocusMode.shortcutName)\u{201D}")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text("Turns on Do Not Disturb while the page is open, unless a Focus is already on. Uses a shortcut in the Shortcuts app.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
