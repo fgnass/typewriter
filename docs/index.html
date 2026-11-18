@@ -224,6 +224,7 @@
       <ul class="points">
         <li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><div><b>Your light.</b> <span>Change the width, softness, reach and color of the beam, from warm white to deep orange.</span></div></li>
         <li><svg viewBox="0 0 24 24"><path d="M3 12h18M3 12l4-4M3 12l4 4"/><path d="M14 6h7v12h-7"/></svg><div><b>Two taps on Esc</b> <span>throw the page away. Copy Last Page in the menu brings it back.</span></div></li>
+        <li><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><div><b>Quiet while you write.</b> <span>Turn on Do Not Disturb while writing in the settings, and no notification gets onto the page. It goes off again when you close the page. A Focus that was on before stays on.</span></div></li>
         <li><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><div><b>Settings while you look.</b> <span>Press <kbd>⌘</kbd> <kbd>,</kbd> on the page, and each change shows at once.</span></div></li>
       </ul>
     </div>
@@ -338,9 +339,16 @@
         </div>
       </details>
       <details>
+        <summary>Why does Do Not Disturb need a shortcut?</summary>
+        <div>
+          <p>macOS lets only its own apps turn a Focus on or off. The Shortcuts app can do it, so Typewriter makes a small shortcut named <b>Typewriter Focus</b> for this. When you turn on Do Not Disturb while writing, Shortcuts asks once if you want to add it. You can open it in Shortcuts and see each step.</p>
+          <p>When the page opens, the shortcut turns on Do Not Disturb, but only if no Focus is on. When the page closes, Typewriter turns it off again, but only if it turned it on itself.</p>
+        </div>
+      </details>
+      <details>
         <summary>How do I remove it?</summary>
         <div>
-          <p>Choose Quit from the <span class="serif"><b>T</b></span> in the menu bar and move <code>~/Applications/Typewriter.app</code> to the Bin. Then remove Typewriter from the Accessibility list in System Settings.</p>
+          <p>Choose Quit from the <span class="serif"><b>T</b></span> in the menu bar and move <code>~/Applications/Typewriter.app</code> to the Bin. Then remove Typewriter from the Accessibility list in System Settings. If you added the <b>Typewriter Focus</b> shortcut, delete it in Shortcuts.</p>
         </div>
       </details>
     </div>

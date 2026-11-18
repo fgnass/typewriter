@@ -7,6 +7,11 @@ that had the focus, or copies it to the clipboard. Esc twice discards the page.
 Nothing you type is written to disk. Only the last page stays in memory
 (menu bar → Copy Last Page). The app makes no network connections.
 
+Optional: Do Not Disturb while the page is open (Settings → Do Not Disturb while
+writing). macOS has no public API for Focus, so Typewriter creates a shortcut named
+"Typewriter Focus" (Shortcuts asks once to add it) and runs it with `shortcuts run`.
+It turns Do Not Disturb off again only if it turned it on itself.
+
 **Website:** https://typewriter.gnass.buzz
 
 ## Install
