@@ -7,6 +7,10 @@
 <meta name="description" content="Write anything in any app on your Mac, on a quiet page with nothing else on the screen. A mail, a document, a form in the browser: press a key, write, and the text goes where your cursor was.">
 <meta name="theme-color" content="#e8e3ec">
 <link rel="icon" href="favicon.png">
+<meta property="og:title" content="Typewriter">
+<meta property="og:description" content="Just you and the words. In any app.">
+<meta property="og:image" content="https://typewriter.gnass.buzz/img/page.jpg">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   /* Drafting* Mono by Owen Earl, SIL Open Font License: https://github.com/indestructible-type/Drafting */
   @font-face {
@@ -87,7 +91,7 @@
     content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 0; padding-bottom: 2.4%;
     background: linear-gradient(180deg, #1c1c1f, #2a292d);
   }
-  .bezel img { display: block; width: 100%; height: auto; }
+  .bezel img, .bezel video { display: block; width: 100%; height: auto; }
   .base {
     position: relative; height: 0; padding-bottom: 2.15%;
     background: linear-gradient(180deg, color-mix(in srgb, var(--metal) 45%, white) 0%, color-mix(in srgb, var(--metal) 80%, white) 30%,
@@ -215,7 +219,7 @@
       <a class="btn ghost" href="https://github.com/fgnass/typewriter">Source on GitHub</a>
     </div>
     <div class="req">Free · macOS 13 or later · Apple silicon</div>
-    <div class="mac"><div class="lid"><div class="bezel"><img src="img/page.jpg" width="1800" height="1125" alt="A dark evening landscape fills the screen. In front of it, a sheet of paper rises from a rose gold rail at the bottom. On the paper, typed in a typewriter face, a quote by Owen Earl about the spirit of typewriters. A small carriage at the left end of the rail throws a warm cone of light up the paper."></div></div><div class="base"></div></div>
+    <div class="mac"><div class="lid"><div class="bezel"><video id="demo" src="video/demo.mp4" poster="video/demo-poster.jpg" width="1792" height="1120" autoplay muted loop playsinline aria-label="A reply to Ada Lovelace in a mail app. A key press turns the screen into a sheet of paper in front of the desktop; the reply is typed with a small correction, and after Command Return it appears in the mail."></video></div></div><div class="base"></div></div>
   </header>
 
   <section>
@@ -420,6 +424,7 @@
     'the apology', 'the prompt', 'the commit message', 'the pull request description', 'the support ticket',
     'the message to your landlord', 'the toast for the wedding', 'the first sentence of the novel', 'the morning pages'];
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (still) { const v = document.getElementById('demo'); v.removeAttribute('autoplay'); v.pause(); v.controls = true; }
   const wait = ms => new Promise(r => setTimeout(r, ms));
   (async () => {
     for (let i = 1; ; i = (i + 1) % occasions.length) {

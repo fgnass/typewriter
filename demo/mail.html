@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mail</title>
+<!--
+  A mail client mock-up for the website video. Chrome shows it full screen in kiosk mode; Typewriter
+  inserts its text into the reply field like into any other app. Everyone in the mailbox is a
+  historical person, the messages are made up.
+-->
+<style>
+  :root {
+    --ink: #1d1d1f; --muted: #6e6e73; --line: rgba(0, 0, 0, 0.09); --accent: #0a64d8;
+    --sidebar: rgba(236, 233, 240, 0.92); --pane: #fff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; color: var(--ink);
+    background: #1a1726 url("wallpaper.png") center / cover no-repeat; cursor: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  .menubar {
+    position: fixed; inset: 0 0 auto; height: 24px; display: flex; align-items: center; gap: 20px; padding: 0 18px 0 46px;
+    background: rgba(30, 26, 40, 0.35); backdrop-filter: blur(30px); color: #fff; font-size: 13px;
+  }
+  .menubar b { font-weight: 700; }
+  .menubar .right { margin-left: auto; opacity: 0.9; }
+
+  .window {
+    position: absolute; border-radius: 12px; overflow: hidden; background: var(--pane);
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.35), 0 22px 70px rgba(0, 0, 0, 0.45);
+  }
+  .lights { display: flex; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15); }
+  .lights i:nth-child(2) { background: #febc2e; }
+  .lights i:nth-child(3) { background: #28c840; }
+
+  /* The main window: mailboxes, message list, message. */
+  #main { left: 110px; top: 64px; width: 1220px; height: 760px; display: grid; grid-template-columns: 210px 330px 1fr; }
+  .sidebar { background: var(--sidebar); padding: 14px 10px; border-right: 1px solid var(--line); }
+  .sidebar .lights { margin: 2px 0 26px 6px; }
+  .sidebar h6 { font-size: 11px; color: var(--muted); font-weight: 600; margin: 14px 8px 4px; }
+  .box { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; }
+  .box.on { background: rgba(0, 0, 0, 0.08); }
+  .box svg { width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 1.6; }
+  .box .n { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .list { border-right: 1px solid var(--line); overflow: hidden; }
+  .list header { height: 52px; display: flex; flex-direction: column; justify-content: center; padding: 0 16px; border-bottom: 1px solid var(--line); }
+  .list header b { font-size: 15px; }
+  .list header span { color: var(--muted); font-size: 11px; }
+  .msg { padding: 9px 16px 10px 26px; border-bottom: 1px solid var(--line); position: relative; }
+  .msg.unread::before { content: ""; position: absolute; left: 10px; top: 15px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .msg.on { background: var(--accent); color: #fff; border-radius: 7px; margin: 3px 6px; padding-left: 20px; border-bottom-color: transparent; }
+  .msg .top { display: flex; justify-content: space-between; }
+  .msg .top b { font-weight: 600; }
+  .msg .top span { color: var(--muted); font-size: 12px; }
+  .msg.on .top span, .msg.on p { color: rgba(255, 255, 255, 0.85); }
+  .msg .subj { font-size: 12.5px; }
+  .msg p { color: var(--muted); font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .reader { padding: 22px 28px; overflow: hidden; }
+  .reader .head { display: flex; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(#a7a2b3, #7f7a8e); color: #fff; display: grid; place-items: center; font-weight: 600; flex: none; }
+  .reader .head b { font-size: 14px; }
+  .reader .head div span { display: block; color: var(--muted); font-size: 12px; }
+  .reader .head time { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .reader p + p { margin-top: 10px; }
+  .reader .body { font-size: 14px; line-height: 1.5; max-width: 60ch; }
+
+  /* The reply window in front. */
+  #reply { left: 520px; top: 250px; width: 760px; height: 560px; display: flex; flex-direction: column; }
+  #reply .bar { height: 44px; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: #f3f2f5; border-bottom: 1px solid var(--line); }
+  #reply .bar b { margin: 0 auto; font-size: 13px; transform: translateX(-30px); }
+  #reply .send { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); }
+  #reply .send svg { width: 14px; height: 14px; fill: #fff; }
+  .field { display: flex; gap: 8px; padding: 7px 16px; border-bottom: 1px solid var(--line); }
+  .field > span:first-child { color: var(--muted); width: 56px; }
+  .chip { background: rgba(10, 100, 216, 0.1); color: var(--accent); border-radius: 4px; padding: 0 6px; }
+  .compose { flex: 1; padding: 16px 18px; font-size: 14px; line-height: 1.5; overflow: hidden; }
+  #text { outline: none; min-height: 1.5em; white-space: pre-wrap; caret-color: var(--ink); }
+  .quoted { margin-top: 22px; color: var(--muted); }
+  .quoted blockquote { margin-top: 8px; padding-left: 12px; border-left: 2px solid #9fb8de; color: #4f5d75; }
+  .quoted blockquote p + p { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="menubar"><b>Mail</b><span>File</span><span>Edit</span><span>View</span><span>Mailbox</span><span>Message</span><span>Format</span><span>Window</span><span>Help</span><span class="right">Tue 4 Jul 09:41</span></div>
+
+<div class="window" id="main">
+  <aside class="sidebar">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <h6>Favorites</h6>
+    <div class="box on"><svg viewBox="0 0 16 16"><path d="M2 9h3l1 2h4l1-2h3v4H2zM2 9l2-6h8l2 6"/></svg>Inbox<span class="n">3</span></div>
+    <div class="box"><svg viewBox="0 0 16 16"><path d="M3 2v12M3 3h9l-2 3 2 3H3"/></svg>Flagged</div>
+    <div class="box"><svg viewBox="0 0 16 16"><path d="M3 2h7l3 3v9H3z"/></svg>Drafts</div>
+    <div class="box"><svg viewBox="0 0 16 16"><path d="M2 8l12-5-4 11-2-5z"/></svg>Sent</div>
+    <h6>Mailboxes</h6>
+    <div class="box"><svg viewBox="0 0 16 16"><path d="M2 4h4l1 1h7v8H2z"/></svg>Engine</div>
+    <div class="box"><svg viewBox="0 0 16 16"><path d="M2 4h4l1 1h7v8H2z"/></svg>Royal Society</div>
+    <div class="box"><svg viewBox="0 0 16 16"><path d="M2 4h4l1 1h7v8H2z"/></svg>Patents</div>
+  </aside>
+  <section class="list">
+    <header><b>Inbox</b><span>14 messages, 3 unread</span></header>
+    <div class="msg on"><div class="top"><b>Ada Lovelace</b><span>09:12</span></div><div class="subj">Notes on the Engine</div><p>The notes on Menabrea's paper are now three times as long as the paper itself…</p></div>
+    <div class="msg unread"><div class="top"><b>Alexander von Humboldt</b><span>08:30</span></div><div class="subj">Back from the Orinoco</div><p>Forty boxes of plants, three of insects and one very tired mule. I will need your largest room.</p></div>
+    <div class="msg unread"><div class="top"><b>Mary Somerville</b><span>Yesterday</span></div><div class="subj">Translation of Laplace</div><p>I have added a preface. It is now longer than I meant, which I hear is a family habit of my friends.</p></div>
+    <div class="msg unread"><div class="top"><b>Michael Faraday</b><span>Yesterday</span></div><div class="subj">Friday lecture</div><p>The candle is ready. Please do not bring the Difference Engine this time, the hall is not that large.</p></div>
+    <div class="msg"><div class="top"><b>Mary Anning</b><span>Sunday</span></div><div class="subj">Another one at Lyme</div><p>The cliff gave up a long neck this morning. Nobody in London believes me yet.</p></div>
+    <div class="msg"><div class="top"><b>Isambard K. Brunel</b><span>Saturday</span></div><div class="subj">Re: The bridge</div><p>Two hundred and fourteen metres. I promise it will hold. I promised the last one, too.</p></div>
+    <div class="msg"><div class="top"><b>John Herschel</b><span>Friday</span></div><div class="subj">Photographs</div><p>I have a new word for the pictures: negative. Let me know what you think.</p></div>
+  </section>
+  <article class="reader">
+    <div class="head"><div class="avatar">AL</div><div><b>Ada Lovelace</b><span>To: Charles Babbage</span><span>Notes on the Engine</span></div><time>09:12</time></div>
+    <div class="body">
+      <p>Dear Charles,</p>
+      <p>the notes on Menabrea's paper are now three times as long as the paper itself. Note G alone explains, step by step, how the Engine could compute the Bernoulli numbers.</p>
+      <p>Should I cut them down before they go to the printer?</p>
+      <p>Ada</p>
+    </div>
+  </article>
+</div>
+
+<div class="window" id="reply">
+  <div class="bar">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <b>Re: Notes on the Engine</b>
+    <div class="send"><svg viewBox="0 0 16 16"><path d="M1 8l14-6-5 14-2-6z"/></svg></div>
+  </div>
+  <div class="field"><span>To:</span><span class="chip">Ada Lovelace</span></div>
+  <div class="field"><span>Subject:</span>Re: Notes on the Engine</div>
+  <div class="compose">
+    <div id="text" contenteditable="plaintext-only" spellcheck="false"></div>
+    <div class="quoted">
+      On 4 July 1843 at 09:12, Ada Lovelace wrote:
+      <blockquote>
+        <p>Dear Charles,</p>
+        <p>the notes on Menabrea's paper are now three times as long as the paper itself. Note G alone explains, step by step, how the Engine could compute the Bernoulli numbers.</p>
+        <p>Should I cut them down before they go to the printer?</p>
+        <p>Ada</p>
+      </blockquote>
+    </div>
+  </div>
+</div>
+<script>
+  const text = document.getElementById('text');
+  text.focus();
+  // Typewriter calls this with the text of the page, like a paste.
+  window.insertText = t => { text.focus(); document.execCommand('insertText', false, t); };
+  // Keep the caret in the reply, as in a real compose window.
+  document.addEventListener('mousedown', e => { e.preventDefault(); text.focus(); });
+  window.addEventListener('focus', () => text.focus());
+</script>
+</body>
+</html>

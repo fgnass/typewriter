@@ -25,7 +25,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         SettingsPanel.shared.sounds = sounds
         setupMenu()
         if !Inserter.isTrusted { Inserter.requestTrust() }
-        if CommandLine.arguments.contains("--open") {
+        if let path = ProcessInfo.processInfo.environment["TYPEWRITER_STAGE"], let stage = Stage(path: path) {
+            Stage.shared = stage
+            stage.show()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.overlay.show() }
+        } else if CommandLine.arguments.contains("--open") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.overlay.show() }
         }
     }

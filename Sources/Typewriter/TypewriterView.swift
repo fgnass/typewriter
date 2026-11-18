@@ -130,6 +130,31 @@ final class TypewriterView: NSView, NSTextInputClient {
         delegate?.typewriterViewDidChange(self)
     }
 
+    /// Types a script like a person, then sends the page. "⌫" in the script is a backspace.
+    /// Only a debug aid for the website video (TYPEWRITER_SCRIPT).
+    func play(script: String, start: TimeInterval = 1.2) {
+        var t = start
+        var previous: Character = " "
+        for c in script {
+            // Faster inside words, a short stop after punctuation and before a new line.
+            var gap = Double.random(in: 0.075...0.16)
+            if previous == " " { gap += Double.random(in: 0...0.12) }
+            if ".,!?".contains(previous) { gap += 0.3 }
+            if c == "\n" { gap += 0.35 }
+            if c == "⌫" { gap = 0.32 }
+            t += gap
+            previous = c
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in
+                guard let self else { return }
+                if c == "⌫" { self.backspace() } else { self.type(String(c)) }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + t + 1.4) { [weak self] in
+            guard let self else { return }
+            self.delegate?.typewriterViewDidCommit(self)
+        }
+    }
+
     private func backspace() {
         if model.deleteBackward() {
             sounds.play(.backspace)

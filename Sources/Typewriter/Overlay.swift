@@ -30,10 +30,13 @@ final class OverlayController: TypewriterViewDelegate {
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         focus = Inserter.focusState(of: previousApp)
+        // Debug aid for the website video: the mock-up's text field counts as editable at once.
+        if let name = ProcessInfo.processInfo.environment["TYPEWRITER_APPNAME"] { focus = .editable(appName: name) }
 
         let hint: String
         switch focus {
-        case .editable(let name): hint = "⌘↩ insert into \(name)    esc discard    ⌘, light"
+        case .editable(let name):
+            hint = "⌘↩ insert into \(name)    esc discard    ⌘, light"
         case .notEditable: hint = "⌘↩ copy to clipboard    esc discard"
         case .unknown: hint = "⌘↩ copy to clipboard (allow Accessibility to insert directly)    esc discard"
         }
@@ -79,6 +82,10 @@ final class OverlayController: TypewriterViewDelegate {
         }
         sounds.play(.feed)
         sounds.startHum()
+        if let script = ProcessInfo.processInfo.environment["TYPEWRITER_SCRIPT"] {
+            // Debug aid for the website video: types the script like a person and sends it.
+            v.play(script: script.replacingOccurrences(of: "\\n", with: "\n"))
+        }
         FocusMode.begin()
     }
 
@@ -96,6 +103,8 @@ final class OverlayController: TypewriterViewDelegate {
             w.close()
             if let app = self.previousApp {
                 app.activate()
+            } else if let stage = Stage.shared {
+                stage.focus()
             } else {
                 NSApp.hide(nil)
             }
@@ -115,7 +124,7 @@ final class OverlayController: TypewriterViewDelegate {
             switch focus {
             case .editable:
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    Inserter.paste(text)
+                    if let stage = Stage.shared { stage.insert(text) } else { Inserter.paste(text) }
                 }
             case .notEditable, .unknown:
                 Inserter.copyToClipboard(text)
