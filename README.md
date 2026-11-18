@@ -3,7 +3,7 @@
 Write anything in any app on your Mac (a mail, a Word document, a form in the
 browser, a chat) on a quiet page with nothing else on the screen.
 
-Press ⌃ and the key left of 1 (⌃^ on German, ⌃` on US keyboards; any shortcut in the settings) and the main display becomes a sheet of paper. A small carriage moves
+Press ⌥ Space (or any shortcut you choose in the settings) and the main display becomes a sheet of paper. A small carriage moves
 as you type, and a warm lamp lights the line. ⌘↩ inserts the text into the field
 that had the focus, or copies it to the clipboard. Esc puts the page away; Copy Last Page in the menu brings it back.
 

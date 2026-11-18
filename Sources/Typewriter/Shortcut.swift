@@ -17,12 +17,14 @@ struct Shortcut: Equatable {
         KBGetLayoutType(Int16(LMGetKbdType())) == kKeyboardISO ? UInt32(kVK_ISO_Section) : UInt32(kVK_ANSI_Grave)
     }
 
-    static var standard: Shortcut { Shortcut(keyCode: keyLeftOfOne, modifiers: .control) }
+    /// ⌥ Space: the same on German and US keyboards. (In text fields it usually types a non-breaking
+    /// space; while Typewriter runs, the shortcut opens the page instead.)
+    static var standard: Shortcut { Shortcut(keyCode: UInt32(kVK_Space), modifiers: .option) }
 
     /// Suggestions that macOS does not use, and that are easy to reach on German and US keyboards.
     static var suggestions: [Shortcut] {
         [standard,
-         Shortcut(keyCode: UInt32(kVK_Space), modifiers: .option),
+         Shortcut(keyCode: keyLeftOfOne, modifiers: .control),
          Shortcut(keyCode: UInt32(kVK_ANSI_T), modifiers: [.control, .option]),
          Shortcut(keyCode: UInt32(kVK_Return), modifiers: [.control, .option])]
     }
