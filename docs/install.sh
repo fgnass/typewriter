@@ -14,7 +14,15 @@ DEST="$HOME/Applications"
 APP="$DEST/Typewriter.app"
 BUNDLE_ID="com.fgnass.typewriter"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# If the old app was moved away and no app is in its place, keep it and tell where it is.
+cleanup() {
+  if [ -e "$TMP/old.app" ] && [ ! -e "$APP" ]; then
+    echo "Your previous Typewriter is kept in $TMP/old.app. Move it to $APP to restore it." >&2
+  else
+    rm -rf "$TMP"
+  fi
+}
+trap cleanup EXIT
 
 fail() { echo "Error: $*" >&2; exit 1; }
 
@@ -49,9 +57,13 @@ if [ -e "$APP" ]; then
   mv "$APP" "$TMP/old.app"
 fi
 if ! mv "$NEW" "$APP"; then
-  [ -e "$TMP/old.app" ] && mv "$TMP/old.app" "$APP"
-  fail "Could not install to $APP. The previous version is unchanged."
+  rm -rf "$APP"
+  if [ -e "$TMP/old.app" ] && mv "$TMP/old.app" "$APP"; then
+    fail "Could not install to $APP. The previous version is unchanged."
+  fi
+  fail "Could not install to $APP."
 fi
+rm -rf "$TMP/old.app"
 
 echo "Installed to $APP"
 echo "Look for the T in the menu bar. Allow Accessibility when macOS asks, so Typewriter can insert your text."
