@@ -125,8 +125,13 @@ final class OverlayController: TypewriterViewDelegate {
     }
 
     func typewriterViewDidDiscard(_ view: TypewriterView) {
-        remember(view.model.text)
-        close {}
+        let text = view.model.text
+        remember(text)
+        close {
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                HUD.show("Page put away. Copy Last Page is in the menu.")
+            }
+        }
     }
 
     func typewriterViewDidChange(_ view: TypewriterView) {}

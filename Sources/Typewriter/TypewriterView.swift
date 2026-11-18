@@ -21,7 +21,6 @@ final class TypewriterView: NSView, NSTextInputClient {
 
     private var marked: String = ""
     private var bellRungOnLine = -1
-    private var escArmedUntil: Date?
 
     init(frame: CGRect, model: TextModel, variant: HardwareVariant, sounds: SoundEngine, scale: CGFloat, hint: String) {
         self.model = model
@@ -175,23 +174,14 @@ final class TypewriterView: NSView, NSTextInputClient {
             handleEscape()
             return
         }
-        escArmedUntil = nil
         if inputContext?.handleEvent(event) != true {
             interpretKeyEvents([event])
         }
     }
 
+    /// One press closes the page. Nothing is lost: the page stays available as Copy Last Page.
     private func handleEscape() {
-        if model.isEmpty {
-            delegate?.typewriterViewDidDiscard(self)
-            return
-        }
-        if let until = escArmedUntil, until > Date() {
-            delegate?.typewriterViewDidDiscard(self)
-            return
-        }
-        escArmedUntil = Date().addingTimeInterval(2.5)
-        showNotice("Press esc again to discard this page", duration: 2.5)
+        delegate?.typewriterViewDidDiscard(self)
     }
 
     override func doCommand(by selector: Selector) {

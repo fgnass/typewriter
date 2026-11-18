@@ -29,6 +29,44 @@ final class SettingsModel: ObservableObject {
     /// Nil until checked.
     @Published var shortcutInstalled: Bool?
 
+    @Published var shortcut = Shortcut.current {
+        didSet { if Shortcut.current != shortcut { Shortcut.current = shortcut } }
+    }
+    @Published private(set) var recording = false
+    private var monitor: Any?
+    private weak var previousKeyWindow: NSWindow?
+
+    /// Waits for the next key with ⌃, ⌥ or ⌘. Esc cancels.
+    func startRecording() {
+        guard !recording else { return }
+        recording = true
+        NotificationCenter.default.post(name: Shortcut.recordingDidChange, object: true)
+        previousKeyWindow = NSApp.keyWindow
+        NSApp.activate(ignoringOtherApps: true)
+        SettingsPanel.shared.makeKey()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if event.keyCode == 53, event.modifierFlags.intersection([.control, .option, .command]).isEmpty {
+                self.stopRecording()
+            } else if let s = Shortcut(event: event) {
+                self.shortcut = s
+                self.stopRecording()
+            } else {
+                NSSound.beep()
+            }
+            return nil
+        }
+    }
+
+    func stopRecording() {
+        guard recording else { return }
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        recording = false
+        NotificationCenter.default.post(name: Shortcut.recordingDidChange, object: false)
+        previousKeyWindow?.makeKey()
+    }
+
     func checkShortcut() {
         FocusMode.checkInstalled { [weak self] in self?.shortcutInstalled = $0 }
     }
@@ -44,6 +82,7 @@ final class SettingsModel: ObservableObject {
         hardwareID = Hardware.currentID
         light = LightSettings.current
         focus = FocusMode.enabled
+        shortcut = Shortcut.current
         checkShortcut()
         guard let sounds else { return }
         style = sounds.style
@@ -55,6 +94,28 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Open Typewriter") {
+                    HStack(spacing: 8) {
+                        Button(model.recording ? "Type a shortcut…" : model.shortcut.title) {
+                            model.recording ? model.stopRecording() : model.startRecording()
+                        }
+                        .frame(minWidth: 120)
+                        Menu {
+                            ForEach(Shortcut.suggestions, id: \.title) { s in
+                                Button(s.title) { model.stopRecording(); model.shortcut = s }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Suggestions")
+                    }
+                }
+            }
+
             Section("Hardware") {
                 LabeledContent {
                     HStack(spacing: 8) {

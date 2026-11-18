@@ -6,11 +6,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var overlay = OverlayController(sounds: sounds)
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
+    private var openItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // ⌘^ : keycode 10 is the key left of "1" on ISO keyboards (German "^").
-        hotKey = HotKey(keyCode: UInt32(kVK_ISO_Section), modifiers: UInt32(cmdKey)) { [weak self] in
-            self?.overlay.toggle()
+        registerHotKey()
+        NotificationCenter.default.addObserver(forName: Shortcut.didChange, object: nil, queue: .main) { [weak self] _ in
+            self?.registerHotKey()
+            self?.updateOpenItem()
+        }
+        // While the settings record a new shortcut, the old one must not fire.
+        NotificationCenter.default.addObserver(forName: Shortcut.recordingDidChange, object: nil, queue: .main) { [weak self] n in
+            if n.object as? Bool == true { self?.hotKey = nil } else { self?.registerHotKey() }
         }
         if let dir = ProcessInfo.processInfo.environment["TYPEWRITER_EXPORT_SOUNDS"] {
             sounds.export(to: URL(fileURLWithPath: dir))
@@ -30,10 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
-        let open = NSMenuItem(title: "Open Typewriter", action: #selector(openTypewriter), keyEquivalent: "^")
-        open.keyEquivalentModifierMask = .command
+        let open = NSMenuItem(title: "Open Typewriter", action: #selector(openTypewriter), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+        openItem = open
+        updateOpenItem()
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -51,6 +58,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+    }
+
+    private func registerHotKey() {
+        let s = Shortcut.current
+        hotKey = nil
+        hotKey = HotKey(keyCode: s.keyCode, modifiers: s.carbonModifiers) { [weak self] in
+            self?.overlay.toggle()
+        }
+    }
+
+    /// The menu shows the shortcut, but it only works globally: the menu item itself does not react to it.
+    private func updateOpenItem() {
+        let s = Shortcut.current
+        openItem?.keyEquivalent = s.menuKeyEquivalent ?? ""
+        openItem?.keyEquivalentModifierMask = s.modifiers
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
