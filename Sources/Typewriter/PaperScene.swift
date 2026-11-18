@@ -138,6 +138,29 @@ struct Metrics {
     }
 }
 
+/// What is around the text: a full screen of paper, or the desktop picture with a strip of paper
+/// that comes out of the carriage and grows with the text.
+enum PageStyle: String, CaseIterable {
+    case paper, desktop
+
+    static let didChange = Notification.Name("PageStyleDidChange")
+
+    static var current: PageStyle {
+        get { PageStyle(rawValue: UserDefaults.standard.string(forKey: "pageStyle") ?? "") ?? .paper }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "pageStyle")
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .paper: return "Paper"
+        case .desktop: return "Desktop"
+        }
+    }
+}
+
 enum Palette {
     static let ink: CGFloat = 0.14
     static var paperBackground: CGColor { CGColor(srgbRed: 0.745, green: 0.715, blue: 0.79, alpha: 1) }
@@ -288,6 +311,11 @@ final class PaperScene {
     let noticeLayer = CATextLayer()
 
     private let paper = CALayer()
+    private let style = PageStyle.current
+    /// Desktop style: the desktop picture, the visible part of the paper and its shadow.
+    private let wallpaper = CALayer()
+    private let paperMask = CALayer()
+    private let paperShadow = CALayer()
     private let light = CALayer()
     private let band = CALayer()
     private let head = CALayer()
@@ -329,6 +357,7 @@ final class PaperScene {
         paper.frame = b
         paper.contents = Self.makePaperImage(size: m.size, scale: scale)
         paper.contentsGravity = .resize
+        if style == .desktop { setupDesktop() }
         root.addSublayer(paper)
 
         textContainer.anchorPoint = .zero
@@ -372,12 +401,85 @@ final class PaperScene {
             t.alignmentMode = .center
             root.addSublayer(t)
         }
+        if style == .desktop {
+            hintLayer.foregroundColor = CGColor(gray: 1, alpha: 0.55)
+            noticeLayer.foregroundColor = CGColor(gray: 1, alpha: 0.55)
+        }
         hintLayer.frame = CGRect(x: 0, y: m.size.height - 40, width: m.size.width, height: 18)
         noticeLayer.frame = CGRect(x: 0, y: m.size.height - 64, width: m.size.width, height: 18)
         noticeLayer.opacity = 0
 
         applyLightTint()
         renderLight(lightSettings)
+    }
+
+    // MARK: Desktop style
+
+    /// Margin of the paper strip left and right of the text, and above the first line.
+    private var paperSideMargin: CGFloat { metrics.charWidth * 6 }
+    private var paperTopMargin: CGFloat { metrics.lineHeight * 1.2 }
+
+    private func setupDesktop() {
+        let m = metrics
+        let b = CGRect(origin: .zero, size: m.size)
+        // Darker than the picture itself; the evening light of the scene multiplies it further.
+        root.backgroundColor = CGColor(gray: 0, alpha: 1)
+        wallpaper.frame = b
+        wallpaper.contentsGravity = .resizeAspectFill
+        wallpaper.masksToBounds = true
+        wallpaper.opacity = 0.8
+        root.addSublayer(wallpaper)
+        let size = m.size, scale = self.scale
+        DispatchQueue.global(qos: .userInitiated).async {
+            let image = Self.makeWallpaperImage(size: size, scale: scale)
+            DispatchQueue.main.async {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.wallpaper.contents = image
+                CATransaction.commit()
+            }
+        }
+
+        // The strip reaches from far below the screen up to its top edge; only its top edge moves.
+        let strip = CGRect(x: 0, y: 0, width: CGFloat(m.columns) * m.charWidth + paperSideMargin * 2, height: m.size.height * 2)
+        for l in [paperMask, paperShadow] {
+            l.anchorPoint = CGPoint(x: 0, y: 1)
+            l.bounds = strip
+            l.position = CGPoint(x: m.left - paperSideMargin, y: paperTop(caretLine: 0))
+        }
+        paperMask.backgroundColor = CGColor(gray: 0, alpha: 1)
+        paper.mask = paperMask
+        paperShadow.shadowPath = CGPath(rect: strip, transform: nil)
+        paperShadow.shadowColor = CGColor(gray: 0, alpha: 1)
+        paperShadow.shadowOpacity = 0.5
+        paperShadow.shadowRadius = 18
+        paperShadow.shadowOffset = CGSize(width: 0, height: -4)
+        root.addSublayer(paperShadow)
+    }
+
+    /// Top edge of the paper strip: some air above the first line.
+    private func paperTop(caretLine: Int) -> CGFloat {
+        metrics.typingY + CGFloat(caretLine + 1) * metrics.lineHeight + paperTopMargin
+    }
+
+    /// The desktop picture of the main screen, filled to the screen size and a little less colorful.
+    /// Dynamic pictures and the moving aerials give their still image here.
+    private static func makeWallpaperImage(size: CGSize, scale: CGFloat) -> CGImage? {
+        guard let screen = NSScreen.screens.first,
+              let url = NSWorkspace.shared.desktopImageURL(for: screen),
+              let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(max(size.width, size.height) * scale),
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary) else { return nil }
+        let ci = CIImage(cgImage: image)
+        guard let f = CIFilter(name: "CIColorControls") else { return image }
+        f.setValue(ci, forKey: kCIInputImageKey)
+        f.setValue(0.7, forKey: kCIInputSaturationKey)
+        guard let out = f.outputImage else { return image }
+        return CIContext().createCGImage(out, from: ci.extent) ?? image
     }
 
     /// Renders the light in full resolution in the background and shows it when it is ready.
@@ -732,6 +834,11 @@ final class PaperScene {
         move(light, to: CGPoint(x: x, y: m.bandHeight), duration: duration, timing: timing)
         move(textContainer, to: CGPoint(x: m.left - m.linePadding, y: m.typingY + CGFloat(caretLine) * m.lineHeight),
              duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
+        if style == .desktop {
+            let top = CGPoint(x: m.left - paperSideMargin, y: paperTop(caretLine: caretLine))
+            move(paperMask, to: top, duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
+            move(paperShadow, to: top, duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
+        }
 
         lastCaretLine = caretLine
     }

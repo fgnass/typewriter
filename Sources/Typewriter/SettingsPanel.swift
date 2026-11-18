@@ -29,6 +29,9 @@ final class SettingsModel: ObservableObject {
     /// Nil until checked.
     @Published var shortcutInstalled: Bool?
 
+    @Published var pageStyle = PageStyle.current {
+        didSet { if PageStyle.current != pageStyle { PageStyle.current = pageStyle } }
+    }
     @Published var shortcut = Shortcut.current {
         didSet { if Shortcut.current != shortcut { Shortcut.current = shortcut } }
     }
@@ -83,6 +86,7 @@ final class SettingsModel: ObservableObject {
         light = LightSettings.current
         focus = FocusMode.enabled
         shortcut = Shortcut.current
+        pageStyle = PageStyle.current
         checkShortcut()
         guard let sounds else { return }
         style = sounds.style
@@ -114,6 +118,13 @@ struct SettingsView: View {
                         .help("Suggestions")
                     }
                 }
+            }
+
+            Section {
+                Picker("Around the page", selection: $model.pageStyle) {
+                    ForEach(PageStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
             }
 
             Section("Hardware") {

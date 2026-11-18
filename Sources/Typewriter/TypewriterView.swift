@@ -18,6 +18,7 @@ final class TypewriterView: NSView, NSTextInputClient {
     private var hint: String
     private var lightObserver: NSObjectProtocol?
     private var hardwareObserver: NSObjectProtocol?
+    private var styleObserver: NSObjectProtocol?
 
     private var marked: String = ""
     private var bellRungOnLine = -1
@@ -43,6 +44,9 @@ final class TypewriterView: NSView, NSTextInputClient {
         hardwareObserver = NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
             if let v = Hardware.current { self?.reloadScene(variant: v) }
         }
+        styleObserver = NotificationCenter.default.addObserver(forName: PageStyle.didChange, object: nil, queue: .main) { [weak self] _ in
+            if let v = Hardware.current { self?.reloadScene(variant: v) }
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             CATransaction.begin()
@@ -57,6 +61,7 @@ final class TypewriterView: NSView, NSTextInputClient {
     deinit {
         if let lightObserver { NotificationCenter.default.removeObserver(lightObserver) }
         if let hardwareObserver { NotificationCenter.default.removeObserver(hardwareObserver) }
+        if let styleObserver { NotificationCenter.default.removeObserver(styleObserver) }
     }
 
     /// Builds the scene again for another hardware variant. The text stays.
