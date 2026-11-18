@@ -630,7 +630,15 @@ final class PaperScene {
         if style == .desktop { moveBloomBelowDesktop(strips: [strip, rightStrip]) }
         statusLayer.contents = variant.status
         statusLayer.contentsGravity = .resize
-        statusLayer.frame = m.carriageFrame
+        // The dot sits in the upper right corner of the body, mirrored to the grille in the left part.
+        let imageDot = CGPoint(x: m.carriageFrame.minX + CarriageGeometry.status.x * m.assetScale,
+                               y: m.carriageFrame.minY + (CarriageGeometry.canvas.height - CarriageGeometry.status.y) * m.assetScale)
+        let dot = statusDot
+        // Larger than in the image, like the Caps Lock light next to a speaker grille: about 3 pt.
+        let k: CGFloat = 2.3
+        let f = m.carriageFrame
+        statusLayer.frame = CGRect(x: dot.x + (f.minX - imageDot.x) * k, y: dot.y + (f.minY - imageDot.y) * k,
+                                   width: f.width * k, height: f.height * k)
         statusLayer.opacity = 1
         statusLayer.shadowColor = CGColor(srgbRed: 1, green: 0.97, blue: 0.9, alpha: 1)
         statusLayer.shadowOpacity = 0.9
@@ -638,12 +646,10 @@ final class PaperScene {
         statusLayer.shadowOffset = .zero
 
         // Caps Lock: the status dot glows green.
-        let sp = CarriageGeometry.status
-        let d: CGFloat = 2.6
+        let d: CGFloat = 3.2
         capsLayer.bounds = CGRect(x: 0, y: 0, width: d, height: d)
         capsLayer.cornerRadius = d / 2
-        capsLayer.position = CGPoint(x: m.carriageFrame.minX + sp.x * m.assetScale,
-                                     y: m.carriageFrame.minY + (CarriageGeometry.canvas.height - sp.y) * m.assetScale)
+        capsLayer.position = dot
         capsLayer.backgroundColor = CGColor(srgbRed: 0.45, green: 1, blue: 0.45, alpha: 1)
         capsLayer.shadowColor = CGColor(srgbRed: 0.3, green: 1, blue: 0.35, alpha: 1)
         capsLayer.shadowOpacity = 1
@@ -685,6 +691,24 @@ final class PaperScene {
             strip.shadowOpacity = 0
         }
         glowHead.addSublayer(glowLamp)
+    }
+
+    /// Layout of the speaker grille, in points relative to the head.
+    private var grilleMetrics: (pitch: CGFloat, hole: CGFloat, inset: CGFloat, midY: CGFloat, rows: Int) {
+        typealias C = CarriageGeometry
+        let s = metrics.assetScale
+        let pitch = max(4, (3.2 * scale).rounded()) / scale
+        let hole = max(2, (1.3 * scale).rounded()) / scale
+        return (pitch, hole, (C.bodyRight - C.bodyLeft) * 0.09 * s,
+                metrics.carriageFrame.minY + (C.canvas.height - (C.bodyTop + C.bodyBottom) / 2) * s, 5)
+    }
+
+    /// Center of the status dot: as far from the right end of the body as the grille is from the left end,
+    /// at the height of the top row of holes.
+    private var statusDot: CGPoint {
+        let g = grilleMetrics
+        let right = metrics.carriageFrame.minX + CarriageGeometry.bodyRight * metrics.assetScale
+        return CGPoint(x: right - g.inset - g.hole / 2, y: g.midY + CGFloat(g.rows - 1) / 2 * g.pitch)
     }
 
     /// A fine speaker grille in the left part of the body, made from the single hole image.

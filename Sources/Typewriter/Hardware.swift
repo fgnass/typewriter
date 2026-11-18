@@ -11,10 +11,17 @@ enum CarriageGeometry {
     static let stretchTop: CGFloat = 615
     static let stretchBottom: CGFloat = 672
     static let canvas = CGSize(width: 1774, height: 887 + bodyExtension)
+    /// The fin sits further left than in the original images, so the carriage does not look like a hand
+    /// with the thumb up: `finShift` columns of the plain body left of the fin are taken out (from
+    /// `shiftStart` on), and the plain foot right of the fin is stretched by the same amount.
+    static let finShift: CGFloat = 240
+    static let shiftStart: CGFloat = 740
+    /// The plain part of the foot that is stretched.
+    static let footStretch: ClosedRange<CGFloat> = 1400...1500
     /// The straight part of the fin, which covers the cell of the next character.
-    static let finLeft: CGFloat = 1223
-    static let finRight: CGFloat = 1356
-    static let finCenter: CGFloat = 1290
+    static let finLeft: CGFloat = 1223 - finShift
+    static let finRight: CGFloat = 1356 - finShift
+    static let finCenter: CGFloat = 1290 - finShift
     /// The fin is shorter than in the original images: `finCut` rows are taken out of its straight part,
     /// starting at `finCutRow`, and everything above moves down.
     static let finCut: CGFloat = 48
@@ -29,10 +36,11 @@ enum CarriageGeometry {
     static let bodyBottom: CGFloat = 706 + bodyExtension
     /// The lamp strip along the top edge of the body.
     static let lampStart = CGPoint(x: 226, y: 503)
-    static let lampEnd = CGPoint(x: 1134, y: 500)
-    static let status = CGPoint(x: 1300, y: 578)
+    static let lampEnd = CGPoint(x: 1134 - finShift, y: 500)
+    /// The status dot in the status image. The scene draws it elsewhere: see `PaperScene.statusDot`.
+    static let status = CGPoint(x: 1300 - finShift, y: 578)
     /// The lamp strip runs on behind the fin; this is its visible part on the foot right of the fin.
-    static let rightLampStart: CGFloat = 1358
+    static let rightLampStart: CGFloat = 1358 - finShift
     static let rightLampEnd: CGFloat = 1545
 }
 
@@ -152,7 +160,7 @@ enum Hardware {
         let tintedCarriage = tint(carriage, to: entry.color ?? railRoseGold) ?? carriage
         let railBand = makeRail(from: tintedCarriage, groove: rail) ?? rail
         let v = HardwareVariant(id: id, title: entry.title,
-                                carriage: prepare(tintedCarriage),
+                                carriage: prepare(removeStatusDot(tintedCarriage) ?? tintedCarriage),
                                 rail: railBand,
                                 lamp: prepare(lamp), status: prepare(status), grilleHole: hole)
         cache[id] = v
@@ -281,7 +289,45 @@ enum Hardware {
     /// Brings an original full-canvas image to the shape in use: shorter fin, taller body.
     private static func prepare(_ image: CGImage) -> CGImage {
         let short = shortenFin(image) ?? image
-        return extend(short) ?? short
+        let shifted = shiftFin(short) ?? short
+        return extend(shifted) ?? shifted
+    }
+
+    /// The carriage image has the status dot painted in below the fin. The scene draws the dot elsewhere,
+    /// so here it is covered with the plain front from a little further left.
+    private static func removeStatusDot(_ image: CGImage) -> CGImage? {
+        let x = 1300, y = 578, r = 16, from = x - 60
+        let w = image.width, h = image.height
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let patch = image.cropping(to: CGRect(x: from - r, y: y - r, width: 2 * r, height: 2 * r)) else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        // Core Graphics counts y from the bottom.
+        ctx.draw(patch, in: CGRect(x: x - r, y: h - y - r, width: 2 * r, height: 2 * r))
+        return ctx.makeImage()
+    }
+
+    /// Moves the fin `finShift` columns to the left; the carriage keeps its length.
+    private static func shiftFin(_ image: CGImage) -> CGImage? {
+        typealias C = CarriageGeometry
+        let d = Int(C.finShift)
+        guard d > 0 else { return image }
+        let w = image.width, h = image.height
+        let a = Int(C.shiftStart), f0 = Int(C.footStretch.lowerBound), f1 = Int(C.footStretch.upperBound)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        func put(_ from: Range<Int>, to x: Int, width: Int) {
+            guard let part = image.cropping(to: CGRect(x: from.lowerBound, y: 0, width: from.count, height: h)) else { return }
+            ctx.draw(part, in: CGRect(x: x, y: 0, width: width, height: h))
+        }
+        put(0..<a, to: 0, width: a)                              // left end and grille area
+        put((a + d)..<f0, to: a, width: f0 - a - d)              // the fin and its rounding, moved left
+        put(f0..<f1, to: f0 - d, width: f1 - f0 + d)             // plain foot, stretched
+        put(f1..<w, to: f1, width: w - f1)                       // right end
+        return ctx.makeImage()
     }
 
     /// Takes `finCut` rows out of the straight part of the fin; the rows above it move down.
