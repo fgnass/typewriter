@@ -7,8 +7,9 @@ Press ⌥ Space (or any shortcut you choose in the settings) and the main displa
 as you type, and a warm lamp lights the line. ⌘↩ inserts the text into the field
 that had the focus, or copies it to the clipboard. Esc puts the page away; Copy Last Page in the menu brings it back.
 
-Nothing you type is written to disk. Only the last page stays in memory
-(menu bar → Copy Last Page). The app makes no network connections.
+Typewriter saves no files with your text. Only the last page stays in memory
+(menu bar → Copy Last Page). To insert the text, it uses the clipboard for a moment
+and then restores it. The app makes no network connections.
 
 Optional: Do Not Disturb while the page is open (Settings → Do Not Disturb while
 writing). macOS has no public API for Focus, so Typewriter creates a shortcut named
@@ -44,3 +45,10 @@ keychain, else ad hoc. A stable identity keeps the Accessibility permission
 across builds; with ad hoc signing, macOS asks again after each build.
 
 The website is in `docs/` (GitHub Pages).
+
+## License
+
+MIT, see [LICENSE](LICENSE). This covers the code, the artwork and the website.
+Third-party parts keep their own licenses: the Drafting* Mono font (SIL Open Font
+License, `Resources/Fonts/OFL.txt`, `docs/drafting-mono-OFL.txt`) and the sounds
+(see `LICENSES.md` in each `Resources/Sounds-*` folder).
