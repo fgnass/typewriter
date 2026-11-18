@@ -137,10 +137,11 @@ final class TypewriterView: NSView, NSTextInputClient {
         var previous: Character = " "
         for c in script {
             // Faster inside words, a short stop after punctuation and before a new line.
-            var gap = Double.random(in: 0.075...0.16)
-            if previous == " " { gap += Double.random(in: 0...0.12) }
-            if ".,!?".contains(previous) { gap += 0.3 }
-            if c == "\n" { gap += 0.35 }
+            var gap = Double.random(in: 0.11...0.21)
+            if previous == " " { gap += Double.random(in: 0.04...0.18) }
+            if ".,!?".contains(previous) { gap += 0.35 }
+            if c == "\n" { gap += 0.3 }
+            if previous == "\n" { gap += 0.55 } // wait for the carriage to return
             if c == "⌫" { gap = 0.32 }
             t += gap
             previous = c

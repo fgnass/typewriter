@@ -944,20 +944,20 @@ final class PaperScene {
         let lineChanged = caretLine != lastCaretLine
         let x = m.printX(caretCol: layout.caretCol)
         let instant = !animated || reduceMotion
-        // A soft glide while typing that rolls out without a jump at its start (a steep start looked like
-        // a jump at 60 frames per second); a quick return to the line start on a new line.
-        let duration: CFTimeInterval = instant ? 0 : (lineChanged ? 0.32 : 0.16)
-        let timing = lineChanged ? CAMediaTimingFunction(controlPoints: 0.45, 0, 0.2, 1) : CAMediaTimingFunction(controlPoints: 0, 0, 0.58, 1)
+        // A short step per key: quick enough that each key reads as one step, but spread over several frames
+        // (a very steep start looked like a jump). The return to the line start takes its time.
+        let duration: CFTimeInterval = instant ? 0 : (lineChanged ? 0.45 : 0.12)
+        let timing = lineChanged ? CAMediaTimingFunction(controlPoints: 0.45, 0, 0.2, 1) : CAMediaTimingFunction(controlPoints: 0.15, 0.5, 0.35, 1)
         move(head, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing)
         if style == .desktop { move(glowHead, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing) }
         move(bandLight, to: CGPoint(x: x, y: 0), duration: duration, timing: timing)
         move(light, to: CGPoint(x: x, y: m.bandHeight), duration: duration, timing: timing)
         move(textContainer, to: CGPoint(x: m.left - m.linePadding, y: m.typingY + CGFloat(caretLine) * m.lineHeight),
-             duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
+             duration: instant ? 0 : (lineChanged ? 0.4 : 0), timing: timing)
         if style == .desktop {
             let top = CGPoint(x: m.left - paperSideMargin, y: paperTop(caretLine: caretLine))
             for l in paperTopLayers {
-                move(l, to: top, duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
+                move(l, to: top, duration: instant ? 0 : (lineChanged ? 0.4 : 0), timing: timing)
             }
         }
 
@@ -1003,13 +1003,12 @@ final class PaperScene {
             w.duration = 0.2
             warm.add(w, forKey: "develop")
             warm.opacity = 0
+            // The ink is there at once, so each key shows its own letter when the fin moves on.
             let i = CABasicAnimation(keyPath: "opacity")
-            i.fromValue = 0
+            i.fromValue = 0.15
             i.toValue = 1
-            i.beginTime = CACurrentMediaTime() + 0.03
-            i.duration = 0.17
-            i.fillMode = .backwards
-            i.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            i.duration = 0.1
+            i.timingFunction = CAMediaTimingFunction(name: .easeOut)
             ink.add(i, forKey: "develop")
         }
     }

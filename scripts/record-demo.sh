@@ -19,7 +19,7 @@ sleep 1.5
 
 rm -f "$OUT"
 # ffmpeg with the hardware encoder drops fewer frames than screencapture.
-ffmpeg -v error -y -f avfoundation -framerate 60 -capture_cursor 0 -i "Capture screen 0:none" -t 27 \
+ffmpeg -v error -y -f avfoundation -framerate 60 -capture_cursor 0 -i "Capture screen 0:none" -t 33 \
   -c:v h264_videotoolbox -b:v 60M -pix_fmt yuv420p "$OUT"
 
 pkill -x Typewriter 2>/dev/null || true
