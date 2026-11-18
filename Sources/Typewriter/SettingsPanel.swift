@@ -131,10 +131,14 @@ struct SettingsView: View {
                 LabeledContent {
                     HStack(spacing: 8) {
                         ForEach(Hardware.ids, id: \.id) { entry in
-                            Swatch(color: Color(nsColor: Hardware.swatchColor(entry.id)),
-                                   selected: model.hardwareID == entry.id)
-                                .onTapGesture { model.hardwareID = entry.id }
-                                .help(entry.title)
+                            Button { model.hardwareID = entry.id } label: {
+                                Swatch(color: Color(nsColor: Hardware.swatchColor(entry.id)),
+                                       selected: model.hardwareID == entry.id)
+                            }
+                            .buttonStyle(.plain)
+                            .help(entry.title)
+                            .accessibilityLabel(entry.title)
+                            .accessibilityAddTraits(model.hardwareID == entry.id ? .isSelected : [])
                         }
                     }
                 } label: {
@@ -225,6 +229,10 @@ struct AlwaysActiveSwitch: ToggleStyle {
                 .animation(.easeOut(duration: 0.15), value: configuration.isOn)
                 .onTapGesture { if isEnabled { configuration.isOn.toggle() } }
         }
+        // For VoiceOver and Full Keyboard Access: a normal switch with the same label.
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+        }
     }
 }
 
@@ -273,6 +281,22 @@ final class SettingsPanel: NSPanel {
         let host = NSHostingView(rootView: SettingsView(model: model))
         contentView = host
         setContentSize(host.fittingSize)
+    }
+
+    /// A shortcut recording must not outlive the panel: the global shortcut is off while it runs.
+    override func orderOut(_ sender: Any?) {
+        model.stopRecording()
+        super.orderOut(sender)
+    }
+
+    override func close() {
+        model.stopRecording()
+        super.close()
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        model.stopRecording()
     }
 
     func toggle() {

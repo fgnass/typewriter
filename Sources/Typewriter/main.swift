@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotKey = HotKey(keyCode: s.keyCode, modifiers: s.carbonModifiers) { [weak self] in
             self?.overlay.toggle()
         }
+        if hotKey == nil { HUD.show("\(s.title) is in use by another app. Choose another shortcut in the settings.") }
     }
 
     /// The menu shows the shortcut, but it only works globally: the menu item itself does not react to it.
@@ -100,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        overlay.rescueOpenPage()
         FocusMode.end(wait: true)
     }
 

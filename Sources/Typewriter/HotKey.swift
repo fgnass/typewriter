@@ -3,21 +3,24 @@ import Carbon
 /// A global hotkey via the Carbon API. It needs no special permission.
 final class HotKey {
     private var ref: EventHotKeyRef?
+    private let id: UInt32
     private static var handlers: [UInt32: () -> Void] = [:]
     private static var installed = false
     private static var nextID: UInt32 = 1
 
-    init(keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) {
+    /// Nil if the system does not accept the shortcut, for example because another app uses it.
+    init?(keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) {
         HotKey.installHandlerOnce()
-        let id = HotKey.nextID
+        id = HotKey.nextID
         HotKey.nextID += 1
-        HotKey.handlers[id] = handler
         let hkID = EventHotKeyID(signature: OSType(0x5459_5057), id: id) // "TYPW"
-        RegisterEventHotKey(keyCode, modifiers, hkID, GetApplicationEventTarget(), 0, &ref)
+        guard RegisterEventHotKey(keyCode, modifiers, hkID, GetApplicationEventTarget(), 0, &ref) == noErr else { return nil }
+        HotKey.handlers[id] = handler
     }
 
     deinit {
         if let ref { UnregisterEventHotKey(ref) }
+        HotKey.handlers[id] = nil
     }
 
     private static func installHandlerOnce() {

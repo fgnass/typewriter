@@ -39,8 +39,12 @@ enum FocusMode {
     static func end(wait: Bool = false) {
         let work = {
             guard turnedOn else { return }
-            turnedOn = false
-            _ = run(on: false)
+            // Keep the state when it fails, so the next close tries again.
+            if run(on: false) != nil {
+                turnedOn = false
+            } else {
+                DispatchQueue.main.async { HUD.show("Could not turn off Do Not Disturb") }
+            }
         }
         if wait { queue.sync(execute: work) } else { queue.async(execute: work) }
     }
@@ -94,12 +98,14 @@ enum FocusMode {
             try? "on".write(to: input, atomically: true, encoding: .utf8)
             arguments += ["--input-path", input.path]
         }
-        let result = shortcuts(arguments)
+        let result = shortcuts(arguments, timeout: 5)
         guard result.status == 0 else { return nil }
         return (try? String(contentsOf: output, encoding: .utf8)) ?? ""
     }
 
-    private static func shortcuts(_ arguments: [String]) -> (status: Int32, output: String?) {
+    /// Runs the `shortcuts` tool. After `timeout` seconds it is stopped, so a shortcut that waits for
+    /// input (or a Shortcuts app that hangs) cannot block the app or its quit.
+    private static func shortcuts(_ arguments: [String], timeout: TimeInterval = 20) -> (status: Int32, output: String?) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
         p.arguments = arguments
@@ -107,6 +113,9 @@ enum FocusMode {
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { return (-1, nil) }
+        let stop = DispatchWorkItem { if p.isRunning { p.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: stop)
+        defer { stop.cancel() }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         return (p.terminationStatus, String(data: data, encoding: .utf8))
