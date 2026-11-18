@@ -51,6 +51,13 @@ enum Inserter {
         return .notEditable
     }
 
+    /// True if the app is in front again and its focused element still accepts text.
+    static func canPaste(into app: NSRunningApplication?) -> Bool {
+        guard let app, NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else { return false }
+        if case .editable = focusState(of: app) { return true }
+        return false
+    }
+
     static func copyToClipboard(_ text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()

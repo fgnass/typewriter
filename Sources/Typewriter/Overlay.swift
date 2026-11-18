@@ -12,6 +12,8 @@ final class OverlayController: TypewriterViewDelegate {
     private var view: TypewriterView?
     private var previousApp: NSRunningApplication?
     private var focus: FocusState = .notEditable
+    /// True during the fade-out. A new page opens only after it, so the old close cannot activate the wrong app.
+    private var closing = false
     /// The last page, for "Copy Last Page" in the menu. Only in memory.
     private(set) var lastPage: String?
 
@@ -26,7 +28,7 @@ final class OverlayController: TypewriterViewDelegate {
     }
 
     func show() {
-        guard window == nil, let screen = NSScreen.screens.first else { return }
+        guard window == nil, !closing, let screen = NSScreen.screens.first else { return }
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         focus = Inserter.focusState(of: previousApp)
@@ -93,6 +95,8 @@ final class OverlayController: TypewriterViewDelegate {
         guard let w = window else { return }
         window = nil
         view = nil
+        closing = true
+        let target = previousApp
         sounds.stopHum()
         FocusMode.end()
         NSAnimationContext.runAnimationGroup({ ctx in
@@ -101,30 +105,43 @@ final class OverlayController: TypewriterViewDelegate {
         }, completionHandler: {
             w.orderOut(nil)
             w.close()
-            if let app = self.previousApp {
+            if let app = target {
                 app.activate()
             } else if let stage = Stage.shared {
                 stage.focus()
             } else {
                 NSApp.hide(nil)
             }
+            self.closing = false
             then()
         })
+    }
+
+    /// The app quits (for example for an update) while a page is open: its text goes to the clipboard.
+    func rescueOpenPage() {
+        guard let view else { return }
+        view.finishComposition()
+        let text = view.model.text
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { Inserter.copyToClipboard(text) }
     }
 
     // MARK: TypewriterViewDelegate
 
     func typewriterViewDidCommit(_ view: TypewriterView) {
+        view.finishComposition()
         let text = view.model.text
         remember(text)
         let focus = self.focus
+        let target = previousApp
         sounds.play(.key, volume: 0.6) // A short, light click instead of a long carriage return.
         close {
             guard !text.isEmpty else { return }
             switch focus {
             case .editable:
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    if let stage = Stage.shared { stage.insert(text) } else { Inserter.paste(text) }
+                if let stage = Stage.shared {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { stage.insert(text) }
+                } else {
+                    self.paste(text, into: target)
                 }
             case .notEditable, .unknown:
                 Inserter.copyToClipboard(text)
@@ -133,7 +150,23 @@ final class OverlayController: TypewriterViewDelegate {
         }
     }
 
+    /// Pastes when the target app is in front again and its field still accepts text. If that does not
+    /// happen within about a second (the user switched to another app or field), the text goes to the clipboard.
+    private func paste(_ text: String, into target: NSRunningApplication?, attempt: Int = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0.2 : 0.1)) {
+            if Inserter.canPaste(into: target) {
+                Inserter.paste(text)
+            } else if attempt < 8 {
+                self.paste(text, into: target, attempt: attempt + 1)
+            } else {
+                Inserter.copyToClipboard(text)
+                HUD.show("The text field lost the focus. Copied to clipboard.")
+            }
+        }
+    }
+
     func typewriterViewDidDiscard(_ view: TypewriterView) {
+        view.finishComposition()
         let text = view.model.text
         remember(text)
         close {
@@ -145,7 +178,7 @@ final class OverlayController: TypewriterViewDelegate {
 
     func typewriterViewDidChange(_ view: TypewriterView) {}
 
-    /// Only the last page is kept, and only in memory: nothing typed is ever written to disk.
+    /// Only the last page is kept, and only in memory: Typewriter saves no files with the text.
     private func remember(_ text: String) {
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lastPage = text }
     }

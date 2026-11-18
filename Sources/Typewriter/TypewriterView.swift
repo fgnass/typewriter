@@ -275,7 +275,19 @@ final class TypewriterView: NSView, NSTextInputClient {
         CATransaction.commit()
     }
 
-    func unmarkText() { setMarked("") }
+    /// The input method accepts the marked text as it is.
+    func unmarkText() {
+        let s = marked
+        setMarked("")
+        if !s.isEmpty { type(s) }
+    }
+
+    /// Takes over a composition that is still open (input methods, dead keys), so the page has all visible text.
+    func finishComposition() {
+        guard hasMarkedText() else { return }
+        unmarkText()
+        inputContext?.discardMarkedText()
+    }
     func selectedRange() -> NSRange { NSRange(location: model.text.utf16.count, length: 0) }
     func markedRange() -> NSRange {
         marked.isEmpty ? NSRange(location: NSNotFound, length: 0)
