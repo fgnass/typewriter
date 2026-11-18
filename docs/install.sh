@@ -14,10 +14,11 @@ DEST="$HOME/Applications"
 APP="$DEST/Typewriter.app"
 BUNDLE_ID="com.fgnass.typewriter"
 TMP="$(mktemp -d)"
-# If the old app was moved away and no app is in its place, keep it and tell where it is.
+# The backup of the old app is removed only after a successful install or restore (both remove
+# or move it). If it is still there at the exit, something failed: keep it and tell where it is.
 cleanup() {
-  if [ -e "$TMP/old.app" ] && [ ! -e "$APP" ]; then
-    echo "Your previous Typewriter is kept in $TMP/old.app. Move it to $APP to restore it." >&2
+  if [ -e "$TMP/old.app" ]; then
+    echo "Your previous Typewriter is kept in $TMP/old.app. To restore it, replace $APP with it." >&2
   else
     rm -rf "$TMP"
   fi
