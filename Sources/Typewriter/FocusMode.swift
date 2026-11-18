@@ -112,12 +112,25 @@ enum FocusMode {
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
+        // The output is read and the exit awaited on another thread, so the caller waits at most `timeout`
+        // seconds, also when the process does not stop. Then it is terminated, and killed a second later.
+        let done = DispatchSemaphore(value: 0)
+        var data = Data()
+        p.terminationHandler = { _ in done.signal() }
         do { try p.run() } catch { return (-1, nil) }
-        let stop = DispatchWorkItem { if p.isRunning { p.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: stop)
-        defer { stop.cancel() }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
+        let reader = DispatchQueue.global()
+        let readDone = DispatchSemaphore(value: 0)
+        reader.async {
+            data = pipe.fileHandleForReading.readDataToEndOfFile()
+            readDone.signal()
+        }
+        guard done.wait(timeout: .now() + timeout) == .success else {
+            p.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) { if p.isRunning { kill(p.processIdentifier, SIGKILL) } }
+            return (-1, nil)
+        }
+        // The output is complete shortly after the exit; do not wait for it without a limit either.
+        guard readDone.wait(timeout: .now() + 1) == .success else { return (p.terminationStatus, nil) }
         return (p.terminationStatus, String(data: data, encoding: .utf8))
     }
 
