@@ -313,9 +313,17 @@ final class PaperScene {
     private let paper = CALayer()
     private let style = PageStyle.current
     /// Desktop style: the desktop picture, the visible part of the paper and its shadow.
+    /// The desktop lies over the full page and its light, with a hole in the shape of the paper strip.
+    /// So the lamp lights only the paper, and the paper looks exactly as in the paper style.
+    private let desktop = CALayer()
     private let wallpaper = CALayer()
-    private let paperMask = CALayer()
     private let paperShadow = CALayer()
+    /// The part of the hole mask above the paper; it moves with the top edge.
+    private let holeTop = CALayer()
+    /// The top edge of the sheet: a fine bright rim and a soft shade below it.
+    private let paperEdge = CAGradientLayer()
+    /// Layers whose top-left corner follows the top edge of the paper.
+    private var paperTopLayers: [CALayer] { [holeTop, paperShadow, paperEdge] }
     private let light = CALayer()
     private let band = CALayer()
     private let head = CALayer()
@@ -381,8 +389,10 @@ final class PaperScene {
         light.anchorPoint = CGPoint(x: 0.5, y: 0)
         light.bounds = CGRect(x: 0, y: 0, width: m.size.width * 2, height: m.size.height - m.bandHeight)
         light.position = CGPoint(x: m.printX(caretCol: 0), y: m.bandHeight)
+        if style == .desktop { root.addSublayer(paperEdge) }
         light.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
         root.addSublayer(light)
+        if style == .desktop { root.addSublayer(desktop) }
 
         band.frame = CGRect(x: 0, y: 0, width: m.size.width, height: m.bandHeight)
         band.contents = Self.makeBandImage(variant: variant, metrics: m, scale: scale)
@@ -422,13 +432,19 @@ final class PaperScene {
     private func setupDesktop() {
         let m = metrics
         let b = CGRect(origin: .zero, size: m.size)
-        // Darker than the picture itself; the evening light of the scene multiplies it further.
-        root.backgroundColor = CGColor(gray: 0, alpha: 1)
+        // The picture is far away: the lamp does not reach it, only the cool evening light.
+        desktop.frame = b
+        desktop.backgroundColor = CGColor(gray: 0, alpha: 1)
         wallpaper.frame = b
         wallpaper.contentsGravity = .resizeAspectFill
         wallpaper.masksToBounds = true
-        wallpaper.opacity = 0.8
-        root.addSublayer(wallpaper)
+        wallpaper.opacity = 0.62
+        desktop.addSublayer(wallpaper)
+        let dusk = CALayer()
+        dusk.frame = b
+        dusk.backgroundColor = Palette.paperBackground
+        dusk.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
+        desktop.addSublayer(dusk)
         let size = m.size, scale = self.scale
         DispatchQueue.global(qos: .userInitiated).async {
             let image = Self.makeWallpaperImage(size: size, scale: scale)
@@ -440,21 +456,44 @@ final class PaperScene {
             }
         }
 
-        // The strip reaches from far below the screen up to its top edge; only its top edge moves.
-        let strip = CGRect(x: 0, y: 0, width: CGFloat(m.columns) * m.charWidth + paperSideMargin * 2, height: m.size.height * 2)
-        for l in [paperMask, paperShadow] {
-            l.anchorPoint = CGPoint(x: 0, y: 1)
-            l.bounds = strip
-            l.position = CGPoint(x: m.left - paperSideMargin, y: paperTop(caretLine: 0))
+        // The hole: everything except the strip. Left and right parts are fixed, the top part moves.
+        let stripX = m.left - paperSideMargin
+        let stripWidth = CGFloat(m.columns) * m.charWidth + paperSideMargin * 2
+        let top = paperTop(caretLine: 0)
+        let hole = CALayer()
+        hole.frame = b
+        let left = CALayer(), right = CALayer()
+        left.frame = CGRect(x: 0, y: 0, width: stripX, height: m.size.height)
+        right.frame = CGRect(x: stripX + stripWidth, y: 0, width: m.size.width - stripX - stripWidth, height: m.size.height)
+        holeTop.anchorPoint = .zero
+        holeTop.bounds = CGRect(x: 0, y: 0, width: stripWidth, height: m.size.height)
+        holeTop.position = CGPoint(x: stripX, y: top)
+        for l in [left, right, holeTop] {
+            l.backgroundColor = CGColor(gray: 0, alpha: 1)
+            hole.addSublayer(l)
         }
-        paperMask.backgroundColor = CGColor(gray: 0, alpha: 1)
-        paper.mask = paperMask
+        desktop.mask = hole
+
+        // The shadow of the sheet falls on the desktop; the strip reaches far below the screen.
+        let strip = CGRect(x: 0, y: 0, width: stripWidth, height: m.size.height * 2)
+        paperShadow.anchorPoint = CGPoint(x: 0, y: 1)
+        paperShadow.bounds = strip
+        paperShadow.position = CGPoint(x: stripX, y: top)
         paperShadow.shadowPath = CGPath(rect: strip, transform: nil)
         paperShadow.shadowColor = CGColor(gray: 0, alpha: 1)
         paperShadow.shadowOpacity = 0.5
         paperShadow.shadowRadius = 18
         paperShadow.shadowOffset = CGSize(width: 0, height: -4)
-        root.addSublayer(paperShadow)
+        desktop.addSublayer(paperShadow)
+
+        // Only the top 10 pt of the paper: a bright rim, then a faint shade.
+        paperEdge.anchorPoint = CGPoint(x: 0, y: 1)
+        paperEdge.bounds = CGRect(x: 0, y: 0, width: stripWidth, height: 10)
+        paperEdge.position = CGPoint(x: stripX, y: top)
+        paperEdge.colors = [CGColor(gray: 1, alpha: 0.45), CGColor(gray: 1, alpha: 0), CGColor(gray: 0, alpha: 0.05), CGColor(gray: 0, alpha: 0)]
+        paperEdge.locations = [0, 0.12, 0.3, 1]
+        paperEdge.startPoint = CGPoint(x: 0.5, y: 1)
+        paperEdge.endPoint = CGPoint(x: 0.5, y: 0)
     }
 
     /// Top edge of the paper strip: some air above the first line.
@@ -836,8 +875,9 @@ final class PaperScene {
              duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
         if style == .desktop {
             let top = CGPoint(x: m.left - paperSideMargin, y: paperTop(caretLine: caretLine))
-            move(paperMask, to: top, duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
-            move(paperShadow, to: top, duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
+            for l in paperTopLayers {
+                move(l, to: top, duration: instant ? 0 : (lineChanged ? 0.28 : 0), timing: timing)
+            }
         }
 
         lastCaretLine = caretLine
