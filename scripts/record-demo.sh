@@ -18,11 +18,13 @@ TYPEWRITER_SCRIPT=$'Dear Ada,\n\ndo not cut a single line. Your notes are betetr
 sleep 1.5
 
 rm -f "$OUT"
-screencapture -x -v -V 27 "$OUT"
+# ffmpeg with the hardware encoder drops fewer frames than screencapture.
+ffmpeg -v error -y -f avfoundation -framerate 60 -capture_cursor 0 -i "Capture screen 0:none" -t 27 \
+  -c:v h264_videotoolbox -b:v 60M -pix_fmt yuv420p "$OUT"
 
 pkill -x Typewriter 2>/dev/null || true
 open ~/Applications/Typewriter.app
 echo "Wrote $OUT"
 # For the website (the delogo filter hides the recording indicator in the menu bar):
-#   ffmpeg -i demo.mov -an -vf "delogo=x=2846:y=3:w=24:h=24,fps=30,scale=1792:1120:flags=lanczos" \
-#     -c:v libx264 -pix_fmt yuv420p -crf 26 -preset slow -movflags +faststart docs/video/demo.mp4
+#   ffmpeg -i demo.mov -an -vf "delogo=x=2846:y=3:w=26:h=26,scale=1792:1120:flags=lanczos" -fps_mode cfr -r 60 \
+#     -c:v libx264 -pix_fmt yuv420p -crf 23 -preset slow -movflags +faststart docs/video/demo.mp4
