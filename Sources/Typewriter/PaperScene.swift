@@ -90,7 +90,7 @@ struct Metrics {
         railScale = lipHeight / (R.grooveTop - R.top)
         bandHeight = lipHeight + grooveHeight + faceHeight
         grooveTopY = faceHeight + grooveHeight
-        carriageBottomY = faceHeight + grooveHeight * 0.28 - C.bodyExtension * s
+        carriageBottomY = faceHeight + grooveHeight * 0.28 - C.bodyExtension * s + C.raise * s
         printY = carriageBottomY + bodyHeight
         carriageFrame = CGRect(x: -C.finCenter * s, y: -(C.canvas.height - C.bodyTop) * s,
                                width: C.canvas.width * s, height: C.canvas.height * s)
@@ -99,10 +99,21 @@ struct Metrics {
         // One continuous lamp strip along the whole body; the fin stands in front of it.
         lampOffsetX = ((C.lampStart.x + C.rightLampEnd) / 2 - C.finCenter) * s
         lampHalfLength = (C.rightLampEnd - C.lampStart.x) / 2 * s
-        // The current line sits above the body with some air below the descenders.
-        baselineY = (printY + descent + charWidth * 0.8).rounded()
+        // The current line sits as low as possible: the fin covers its cell up to the top of an "Ä",
+        // and the descenders keep some air above the body.
+        let finTopY = printY + (C.bodyTop - C.finTop) * s
+        let tallest = Metrics.top(of: "\u{C4}", in: font)
+        baselineY = max(finTopY - tallest - 1.5, printY + descent + 2).rounded()
         baseline = (lineHeight * 0.32).rounded()
         typingY = baselineY - baseline
+    }
+
+    /// Height of a glyph above the baseline.
+    private static func top(of character: String, in font: CTFont) -> CGFloat {
+        var ch = Array(character.utf16)
+        var glyph = [CGGlyph](repeating: 0, count: ch.count)
+        CTFontGetGlyphsForCharacters(font, &ch, &glyph, ch.count)
+        return CTFontGetBoundingRectsForGlyphs(font, .horizontal, glyph, nil, 1).maxY
     }
 
     private static func advance(of font: CTFont) -> CGFloat {

@@ -15,7 +15,13 @@ enum CarriageGeometry {
     static let finLeft: CGFloat = 1223
     static let finRight: CGFloat = 1356
     static let finCenter: CGFloat = 1290
-    static let finTop: CGFloat = 190
+    /// The fin is shorter than in the original images: `finCut` rows are taken out of its straight part,
+    /// starting at `finCutRow`, and everything above moves down.
+    static let finCut: CGFloat = 48
+    static let finCutRow: CGFloat = 260
+    static let finTop: CGFloat = 190 + finCut
+    /// The carriage sits this much higher on the rail than in the original design (image pixels).
+    static let raise: CGFloat = 48
     /// The long body.
     static let bodyLeft: CGFloat = 178
     static let bodyRight: CGFloat = 1595
@@ -146,9 +152,9 @@ enum Hardware {
         let tintedCarriage = tint(carriage, to: entry.color ?? railRoseGold) ?? carriage
         let railBand = makeRail(from: tintedCarriage, groove: rail) ?? rail
         let v = HardwareVariant(id: id, title: entry.title,
-                                carriage: extend(tintedCarriage) ?? tintedCarriage,
+                                carriage: prepare(tintedCarriage),
                                 rail: railBand,
-                                lamp: extend(lamp) ?? lamp, status: extend(status) ?? status, grilleHole: hole)
+                                lamp: prepare(lamp), status: prepare(status), grilleHole: hole)
         cache[id] = v
         return v
     }
@@ -270,6 +276,28 @@ enum Hardware {
         CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
+    }
+
+    /// Brings an original full-canvas image to the shape in use: shorter fin, taller body.
+    private static func prepare(_ image: CGImage) -> CGImage {
+        let short = shortenFin(image) ?? image
+        return extend(short) ?? short
+    }
+
+    /// Takes `finCut` rows out of the straight part of the fin; the rows above it move down.
+    private static func shortenFin(_ image: CGImage) -> CGImage? {
+        typealias C = CarriageGeometry
+        let w = image.width, h = image.height
+        let cut = Int(C.finCut), row = Int(C.finCutRow)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let upper = image.cropping(to: CGRect(x: 0, y: 0, width: w, height: row)),
+              let lower = image.cropping(to: CGRect(x: 0, y: row + cut, width: w, height: h - row - cut)) else { return nil }
+        // Core Graphics counts y from the bottom.
+        ctx.draw(lower, in: CGRect(x: 0, y: 0, width: w, height: h - row - cut))
+        ctx.draw(upper, in: CGRect(x: 0, y: h - row - cut, width: w, height: row))
+        return ctx.makeImage()
     }
 
     /// Makes the body taller: the rows above the slice stay, the slice is stretched, the rows below move down.
