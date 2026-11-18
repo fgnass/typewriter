@@ -21,6 +21,8 @@ final class TypewriterView: NSView, NSTextInputClient {
     private var styleObserver: NSObjectProtocol?
 
     private var marked: String = ""
+    /// The selection inside the marked text, as the input method sets it (UTF-16 units).
+    private var markedSelection = NSRange(location: 0, length: 0)
     private var bellRungOnLine = -1
 
     init(frame: CGRect, model: TextModel, variant: HardwareVariant, sounds: SoundEngine, scale: CGFloat, hint: String) {
@@ -84,6 +86,61 @@ final class TypewriterView: NSView, NSTextInputClient {
 
     private func refresh() {
         scene.update(layout: model.layout, ghosts: model.ghosts, animated: true)
+        NSAccessibility.post(element: self, notification: .valueChanged)
+        NSAccessibility.post(element: self, notification: .selectedTextChanged)
+    }
+
+    // MARK: Accessibility
+
+    // The page is drawn with layers, so the view itself tells VoiceOver what it shows: a text area with the
+    // text of the page and the insertion point at its end (a typewriter only writes at the end).
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .textArea }
+    override func accessibilityLabel() -> String? { "Page" }
+    override func accessibilityHelp() -> String? { hint }
+    override func accessibilityValue() -> Any? { model.text }
+    override func accessibilityNumberOfCharacters() -> Int { model.text.utf16.count }
+    override func accessibilitySelectedText() -> String? { "" }
+    override func accessibilitySelectedTextRange() -> NSRange { NSRange(location: model.text.utf16.count, length: 0) }
+    override func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: model.text.utf16.count) }
+    override func accessibilityInsertionPointLineNumber() -> Int { model.layout.caretLine }
+
+    override func accessibilityString(for range: NSRange) -> String? {
+        let ns = model.text as NSString
+        guard range.location >= 0, NSMaxRange(range) <= ns.length else { return nil }
+        return ns.substring(with: range)
+    }
+
+    override func accessibilityLine(for index: Int) -> Int {
+        // `index` counts UTF-16 units, the layout counts Characters.
+        var offset = 0
+        for (i, c) in model.chars.enumerated() {
+            offset += String(c).utf16.count
+            if offset > index { return model.layout.positions[i]?.line ?? model.layout.caretLine }
+        }
+        return model.layout.caretLine
+    }
+
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        // Character indexes of the line; the model counts Characters, accessibility counts UTF-16 units.
+        var start: Int?, end = 0, offset = 0
+        for (i, c) in model.chars.enumerated() {
+            let len = String(c).utf16.count
+            if let p = model.layout.positions[i], p.line == line {
+                if start == nil { start = offset }
+                end = offset + len
+            }
+            offset += len
+        }
+        guard let start else { return NSRange(location: line == model.layout.caretLine ? offset : NSNotFound, length: 0) }
+        return NSRange(location: start, length: end - start)
+    }
+
+    override func accessibilityFrame(for range: NSRange) -> NSRect {
+        let m = metrics
+        let r = NSRect(x: m.cellX(col: model.layout.caretCol), y: m.typingY, width: m.charWidth, height: m.lineHeight)
+        return window?.convertToScreen(convert(r, to: nil)) ?? r
     }
 
     private func showNotice(_ text: String, duration: TimeInterval = 2) {
@@ -259,16 +316,32 @@ final class TypewriterView: NSView, NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let s = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         setMarked("")
+        replace(replacementRange)
         type(s)
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         let s = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
-        setMarked(s)
+        replace(replacementRange)
+        setMarked(s, selection: selectedRange)
     }
 
-    private func setMarked(_ s: String) {
+    /// An input method replaces typed text, for example when it converts it again. The page can only change
+    /// its end, like a typewriter: a range at the end of the text is removed, a range in the middle is ignored.
+    private func replace(_ range: NSRange) {
+        guard range.location != NSNotFound, range.length > 0 else { return }
+        let length = model.text.utf16.count
+        guard NSMaxRange(range) == length else { return }
+        model.truncate(toUTF16Length: range.location)
+        refresh()
+    }
+
+    private func setMarked(_ s: String, selection: NSRange? = nil) {
         marked = s
+        let count = s.utf16.count
+        let sel = selection ?? NSRange(location: count, length: 0)
+        let location = min(max(0, sel.location == NSNotFound ? count : sel.location), count)
+        markedSelection = NSRange(location: location, length: min(max(0, sel.length), count - location))
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         scene.markedLayer.string = s
@@ -288,13 +361,24 @@ final class TypewriterView: NSView, NSTextInputClient {
         unmarkText()
         inputContext?.discardMarkedText()
     }
-    func selectedRange() -> NSRange { NSRange(location: model.text.utf16.count, length: 0) }
+    func selectedRange() -> NSRange {
+        let end = model.text.utf16.count
+        guard hasMarkedText() else { return NSRange(location: end, length: 0) }
+        return NSRange(location: end + markedSelection.location, length: markedSelection.length)
+    }
     func markedRange() -> NSRange {
         marked.isEmpty ? NSRange(location: NSNotFound, length: 0)
             : NSRange(location: model.text.utf16.count, length: marked.utf16.count)
     }
     func hasMarkedText() -> Bool { !marked.isEmpty }
-    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
+    /// The text and the marked text, so that input methods can read the context and convert text again.
+    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+        let all = (model.text + marked) as NSString
+        let r = NSIntersectionRange(range, NSRange(location: 0, length: all.length))
+        guard r.location != NSNotFound, range.location <= all.length else { return nil }
+        actualRange?.pointee = r
+        return NSAttributedString(string: all.substring(with: r))
+    }
     func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
     func characterIndex(for point: NSPoint) -> Int { NSNotFound }
 
@@ -304,7 +388,10 @@ final class TypewriterView: NSView, NSTextInputClient {
         // The carriage shows Caps Lock with its own green light.
         guard hasMarkedText() else { return NSRect(x: -100_000, y: -100_000, width: 0, height: 0) }
         let m = metrics
-        let x = m.cellX(col: model.layout.caretCol)
+        // The candidate window follows the selection inside the marked text.
+        let prefix = (marked as NSString).substring(to: markedSelection.location)
+        let cells = prefix.reduce(0) { $0 + TextModel.cells(of: $1) }
+        let x = m.cellX(col: model.layout.caretCol + cells)
         let r = NSRect(x: x, y: m.typingY, width: m.charWidth, height: m.lineHeight)
         return window?.convertToScreen(convert(r, to: nil)) ?? r
     }

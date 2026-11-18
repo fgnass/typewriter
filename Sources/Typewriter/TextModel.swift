@@ -86,6 +86,18 @@ final class TextModel {
         return true
     }
 
+    /// Removes characters from the end until the text has at most `utf16Length` UTF-16 units.
+    func truncate(toUTF16Length utf16Length: Int) {
+        var length = text.utf16.count
+        guard length > utf16Length else { return }
+        while length > utf16Length, let last = chars.last {
+            length -= String(last).utf16.count
+            chars.removeLast()
+            styles.removeLast()
+        }
+        relayout()
+    }
+
     /// Wide characters (East Asian wide and full-width forms, emoji) take two cells, all others one.
     static func cells(of c: Character) -> Int {
         guard let scalar = c.unicodeScalars.first else { return 1 }
