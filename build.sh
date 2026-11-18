@@ -7,8 +7,10 @@ set -euo pipefail
 cd "${0:A:h}"
 MODE="${1:-}"
 
-swift build -c release
-BIN=.build/release/Typewriter
+# Always Apple silicon, also when built on an Intel Mac: the release is for Apple silicon only.
+ARCH="${TYPEWRITER_ARCH:-arm64}"
+swift build -c release --arch "$ARCH"
+BIN="$(swift build -c release --arch "$ARCH" --show-bin-path)/Typewriter"
 
 APP=build/Typewriter.app
 rm -rf "$APP"
@@ -37,7 +39,8 @@ echo "Built $APP (signed: $IDENTITY)"
 
 if [[ "$MODE" == install ]]; then
   DEST="$HOME/Applications/Typewriter.app"
-  pkill -x Typewriter 2>/dev/null || true
+  # Ask the app to quit (not kill it): an open page lives only in memory.
+  osascript -e 'tell application id "com.fgnass.typewriter" to quit' 2>/dev/null || true
   mkdir -p "$HOME/Applications"
   rm -rf "$DEST"
   cp -R "$APP" "$DEST"
@@ -45,6 +48,8 @@ if [[ "$MODE" == install ]]; then
 fi
 
 if [[ "$MODE" == release ]]; then
+  [[ "$(lipo -archs "$APP/Contents/MacOS/Typewriter")" == arm64 ]] || { echo "The release must be arm64" >&2; exit 1; }
+  [[ "$IDENTITY" == "-" ]] && echo "Note: ad hoc signature. The app is not notarized; install it with install.sh (curl sets no quarantine flag)."
   rm -f build/Typewriter.zip
   ditto -c -k --keepParent "$APP" build/Typewriter.zip
   echo "Wrote build/Typewriter.zip"
