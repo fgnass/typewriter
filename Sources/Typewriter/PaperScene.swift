@@ -146,7 +146,7 @@ enum PageStyle: String, CaseIterable {
     static let didChange = Notification.Name("PageStyleDidChange")
 
     static var current: PageStyle {
-        get { PageStyle(rawValue: UserDefaults.standard.string(forKey: "pageStyle") ?? "") ?? .paper }
+        get { PageStyle(rawValue: UserDefaults.standard.string(forKey: "pageStyle") ?? "") ?? .desktop }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "pageStyle")
             NotificationCenter.default.post(name: didChange, object: nil)
@@ -511,8 +511,10 @@ final class PaperScene {
     /// The desktop picture of the main screen, filled to the screen size and a little less colorful.
     /// Dynamic pictures and the moving aerials give their still image here.
     private static func makeWallpaperImage(size: CGSize, scale: CGFloat) -> CGImage? {
+        // Debug aid for screenshots: another picture than the real desktop.
+        let override = ProcessInfo.processInfo.environment["TYPEWRITER_WALLPAPER"].map { URL(fileURLWithPath: $0) }
         guard let screen = NSScreen.screens.first,
-              let url = NSWorkspace.shared.desktopImageURL(for: screen),
+              let url = override ?? NSWorkspace.shared.desktopImageURL(for: screen),
               let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
