@@ -318,6 +318,10 @@ final class PaperScene {
     private let desktop = CALayer()
     private let wallpaper = CALayer()
     private let paperShadow = CALayer()
+    /// Desktop style: the bloom of the lamp lies below the desktop, so it shows only on the paper.
+    /// It moves with the head; the head itself keeps the lamp without its bloom.
+    private let glowHead = CALayer()
+    private let glowLamp = CALayer()
     /// The part of the hole mask above the paper; it moves with the top edge.
     private let holeTop = CALayer()
     /// The top edge of the sheet: a fine bright rim and a soft shade below it.
@@ -392,7 +396,10 @@ final class PaperScene {
         if style == .desktop { root.addSublayer(paperEdge) }
         light.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
         root.addSublayer(light)
-        if style == .desktop { root.addSublayer(desktop) }
+        if style == .desktop {
+            root.addSublayer(glowHead)
+            root.addSublayer(desktop)
+        }
 
         band.frame = CGRect(x: 0, y: 0, width: m.size.width, height: m.bandHeight)
         band.contents = Self.makeBandImage(variant: variant, metrics: m, scale: scale)
@@ -618,6 +625,7 @@ final class PaperScene {
         rightStrip.shadowOffset = strip.shadowOffset
         lampLayer.addSublayer(rightStrip)
         lampEdges = [strip, rightStrip]
+        if style == .desktop { moveBloomBelowDesktop(strips: [strip, rightStrip]) }
         statusLayer.contents = variant.status
         statusLayer.contentsGravity = .resize
         statusLayer.frame = m.carriageFrame
@@ -644,6 +652,37 @@ final class PaperScene {
         head.addSublayer(capsLayer)
 
         root.addSublayer(head)
+    }
+
+    /// Copies the lamp with its bloom into `glowHead` and takes the bloom off the lamp in the head.
+    private func moveBloomBelowDesktop(strips: [CAGradientLayer]) {
+        glowHead.anchorPoint = head.anchorPoint
+        glowHead.bounds = head.bounds
+        glowHead.position = head.position
+        glowLamp.contents = lampLayer.contents
+        glowLamp.contentsGravity = lampLayer.contentsGravity
+        glowLamp.frame = lampLayer.frame
+        glowLamp.shadowColor = lampLayer.shadowColor
+        glowLamp.shadowOpacity = lampLayer.shadowOpacity
+        glowLamp.shadowRadius = lampLayer.shadowRadius
+        glowLamp.shadowOffset = lampLayer.shadowOffset
+        lampLayer.shadowOpacity = 0
+        for strip in strips {
+            let copy = CAGradientLayer()
+            copy.colors = strip.colors
+            copy.locations = strip.locations
+            copy.startPoint = strip.startPoint
+            copy.endPoint = strip.endPoint
+            copy.frame = strip.frame
+            copy.shadowColor = strip.shadowColor
+            copy.shadowOpacity = strip.shadowOpacity
+            copy.shadowRadius = strip.shadowRadius
+            copy.shadowOffset = strip.shadowOffset
+            glowLamp.addSublayer(copy)
+            lampEdges.append(copy)
+            strip.shadowOpacity = 0
+        }
+        glowHead.addSublayer(glowLamp)
     }
 
     /// A fine speaker grille in the left part of the body, made from the single hole image.
@@ -753,6 +792,7 @@ final class PaperScene {
         let c = lightSettings.color
         let k = min(1, lightSettings.brightness)
         lampLayer.opacity = Float(min(1, lightSettings.brightness))
+        glowLamp.opacity = lampLayer.opacity
         // The glowing lamp edge has the color of the light: nearly white in its core, its glow in the light color.
         let core = CGColor(srgbRed: 1, green: 1 - (1 - c.g) * 0.3, blue: 1 - (1 - c.b) * 0.3, alpha: 1)
         let fade = CGColor(srgbRed: 1, green: 1 - (1 - c.g) * 0.3, blue: 1 - (1 - c.b) * 0.3, alpha: 0)
@@ -869,6 +909,7 @@ final class PaperScene {
         let duration: CFTimeInterval = instant ? 0 : (lineChanged ? 0.32 : 0.09)
         let timing = lineChanged ? CAMediaTimingFunction(controlPoints: 0.45, 0, 0.2, 1) : CAMediaTimingFunction(controlPoints: 0.2, 0.7, 0.3, 1)
         move(head, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing)
+        if style == .desktop { move(glowHead, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing) }
         move(bandLight, to: CGPoint(x: x, y: 0), duration: duration, timing: timing)
         move(light, to: CGPoint(x: x, y: m.bandHeight), duration: duration, timing: timing)
         move(textContainer, to: CGPoint(x: m.left - m.linePadding, y: m.typingY + CGFloat(caretLine) * m.lineHeight),
