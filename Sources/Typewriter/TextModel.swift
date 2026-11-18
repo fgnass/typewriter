@@ -39,6 +39,8 @@ struct PlacedGlyph: Hashable {
     let col: Int
     let char: Character
     let style: StrikeStyle
+    /// Number of character cells: 2 for wide characters (CJK, emoji), else 1.
+    var cells: Int { TextModel.cells(of: char) }
 }
 
 struct Layout {
@@ -84,26 +86,49 @@ final class TextModel {
         return true
     }
 
+    /// Wide characters (East Asian wide and full-width forms, emoji) take two cells, all others one.
+    static func cells(of c: Character) -> Int {
+        guard let scalar = c.unicodeScalars.first else { return 1 }
+        if c.unicodeScalars.count > 1, c.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || $0.value == 0xFE0F }) {
+            return 2
+        }
+        if scalar.properties.isEmojiPresentation { return 2 }
+        switch scalar.value {
+        case 0x1100...0x115F, 0x2E80...0x303E, 0x3041...0x33FF, 0x3400...0x4DBF, 0x4E00...0x9FFF,
+             0xA000...0xA4CF, 0xA960...0xA97F, 0xAC00...0xD7A3, 0xF900...0xFAFF, 0xFE30...0xFE4F,
+             0xFF00...0xFF60, 0xFFE0...0xFFE6, 0x20000...0x3FFFD:
+            return 2
+        default:
+            return 1
+        }
+    }
+
     private func relayout() {
         var lines: [[PlacedGlyph]] = [[]]
+        var used = 0 // Cells used on the last line.
         var positions: [(line: Int, col: Int)?] = Array(repeating: nil, count: chars.count)
+        func newLine() {
+            lines.append([])
+            used = 0
+        }
         func place(_ i: Int) {
             let line = lines.count - 1
-            positions[i] = (line, lines[line].count)
-            lines[line].append(PlacedGlyph(col: lines[line].count, char: chars[i], style: styles[i]))
+            positions[i] = (line, used)
+            lines[line].append(PlacedGlyph(col: used, char: chars[i], style: styles[i]))
+            used += TextModel.cells(of: chars[i])
         }
         var i = 0
         let n = chars.count
         while i < n {
             let c = chars[i]
             if c == "\n" {
-                lines.append([])
+                newLine()
                 i += 1
                 continue
             }
             if c == " " {
-                if lines[lines.count - 1].count >= columns {
-                    lines.append([]) // The space at the margin becomes the line break.
+                if used >= columns {
+                    newLine() // The space at the margin becomes the line break.
                 } else {
                     place(i)
                 }
@@ -111,19 +136,20 @@ final class TextModel {
                 continue
             }
             var j = i
-            while j < n, chars[j] != " ", chars[j] != "\n" { j += 1 }
-            let wordLength = j - i
-            let used = lines[lines.count - 1].count
-            if used > 0, used + wordLength > columns, wordLength <= columns {
-                lines.append([])
+            var wordCells = 0
+            while j < n, chars[j] != " ", chars[j] != "\n" {
+                wordCells += TextModel.cells(of: chars[j])
+                j += 1
+            }
+            if used > 0, used + wordCells > columns, wordCells <= columns {
+                newLine()
             }
             for k in i..<j {
-                if lines[lines.count - 1].count >= columns { lines.append([]) }
+                if used + TextModel.cells(of: chars[k]) > columns, used > 0 { newLine() }
                 place(k)
             }
             i = j
         }
-        layout = Layout(lines: lines, positions: positions,
-                        caretLine: lines.count - 1, caretCol: lines[lines.count - 1].count)
+        layout = Layout(lines: lines, positions: positions, caretLine: lines.count - 1, caretCol: used)
     }
 }

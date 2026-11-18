@@ -214,10 +214,25 @@ final class LineLayer: CALayer {
         }
     }
 
+    /// Draws the character centered in its cells (two for wide characters). A glyph wider than its cells,
+    /// for example from a fallback font, is scaled down so it does not overlap its neighbors.
     private func draw(_ c: Character, x: CGFloat, y: CGFloat, alpha: CGFloat, in ctx: CGContext) {
+        let line = ctLine(for: c)
+        let span = CGFloat(TextModel.cells(of: c)) * metrics.charWidth
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         ctx.setFillColor(CGColor(gray: Palette.ink, alpha: alpha))
-        ctx.textPosition = CGPoint(x: x, y: y)
-        CTLineDraw(ctLine(for: c), ctx)
+        guard width > span + 0.5 else {
+            ctx.textPosition = CGPoint(x: x + max(0, (span - width) / 2), y: y)
+            CTLineDraw(line, ctx)
+            return
+        }
+        let f = span / width
+        ctx.saveGState()
+        ctx.translateBy(x: x, y: y)
+        ctx.scaleBy(x: f, y: f)
+        ctx.textPosition = .zero
+        CTLineDraw(line, ctx)
+        ctx.restoreGState()
     }
 }
 
