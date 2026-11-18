@@ -639,7 +639,20 @@ final class PaperScene {
         let f = m.carriageFrame
         statusLayer.frame = CGRect(x: dot.x + (f.minX - imageDot.x) * k, y: dot.y + (f.minY - imageDot.y) * k,
                                    width: f.width * k, height: f.height * k)
-        statusLayer.opacity = 1
+        // Off, the light is only a matte dot set into the metal; it lights up only for a moment while typing.
+        statusLayer.opacity = 0
+        let socket = CALayer()
+        let sd: CGFloat = 3.2
+        socket.bounds = CGRect(x: 0, y: 0, width: sd, height: sd)
+        socket.cornerRadius = sd / 2
+        socket.position = dot
+        socket.backgroundColor = CGColor(gray: 0, alpha: 0.22)
+        // A fine bright lower rim, as on a small recess.
+        socket.shadowColor = CGColor(gray: 1, alpha: 1)
+        socket.shadowOpacity = 0.35
+        socket.shadowRadius = 0
+        socket.shadowOffset = CGSize(width: 0, height: -0.5)
+        head.addSublayer(socket)
         statusLayer.shadowColor = CGColor(srgbRed: 1, green: 0.97, blue: 0.9, alpha: 1)
         statusLayer.shadowOpacity = 0.9
         statusLayer.shadowRadius = 2.5
@@ -804,12 +817,12 @@ final class PaperScene {
         CATransaction.commit()
     }
 
-    /// The status light flashes when a character is made.
+    /// The status light lights up for a moment when a character is made.
     func flashStatus() {
         let a = CAKeyframeAnimation(keyPath: "opacity")
-        a.values = [1, 0.25, 1, 1]
-        a.keyTimes = [0, 0.15, 0.5, 1]
-        a.duration = 0.5
+        a.values = [0, 0.8, 0]
+        a.keyTimes = [0, 0.2, 1]
+        a.duration = 0.3
         statusLayer.add(a, forKey: "flash")
     }
 
