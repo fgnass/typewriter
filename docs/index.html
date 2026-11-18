@@ -43,7 +43,8 @@
   .serif { font-family: "Drafting Mono", ui-monospace, monospace; }
   .wrap { max-width: 1040px; margin: 0 auto; }
   section { padding: 80px 0; }
-  h1, h2 { font-family: "Drafting Mono", ui-monospace, monospace; font-weight: 600; letter-spacing: -0.04em; }
+  /* Headings in the system face; Drafting* Mono is kept for what is typed on the page. */
+  h1, h2 { font-weight: 700; letter-spacing: -0.025em; text-wrap: balance; }
   h2 { font-size: clamp(1.8rem, 3.8vw, 2.5rem); line-height: 1.12; margin-bottom: 18px; }
   h3 { font-size: 1.08rem; margin-bottom: 4px; font-weight: 650; }
   .lead { color: var(--muted); font-size: 1.1rem; max-width: 46ch; }
@@ -58,8 +59,8 @@
   .hero { padding: 64px 0 24px; text-align: center; }
   .brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 28px; }
   .brand img { width: 64px; height: 64px; }
-  .brand span { font: 600 1.5rem/1 "Drafting Mono", ui-monospace, monospace; letter-spacing: -0.02em; }
-  h1 { font-size: clamp(2.4rem, 6vw, 4rem); line-height: 1.04; margin: 0 auto 20px; max-width: 16ch; }
+  .brand span { font-size: 1.4rem; font-weight: 650; letter-spacing: -0.01em; }
+  h1 { font-size: clamp(2.3rem, 6vw, 4.2rem); line-height: 1.05; margin: 0 auto 18px; max-width: 22ch; }
   .hero .lead { margin: 0 auto 30px; max-width: 40ch; }
   .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
   .btn {
@@ -141,7 +142,7 @@
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 0 0 2px var(--bg), 0 0 0 4px transparent; transition: box-shadow 0.2s;
   }
   .swatches button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
-  .swatch-name { text-align: center; margin-top: 12px; font: 600 1rem "Drafting Mono", ui-monospace, monospace; }
+  .swatch-name { text-align: center; margin-top: 12px; font-weight: 600; }
 
   /* ── Occasions, typed ── */
   .occasion { margin: -4px auto 22px; font: clamp(1.1rem, 2.4vw, 1.45rem)/1.4 "Drafting Mono", ui-monospace, monospace; min-height: 1.4em; }
@@ -212,7 +213,7 @@
 
   <header class="hero">
     <div class="brand"><img src="icon.png" width="512" height="512" alt=""><span>Typewriter</span></div>
-    <h1>Just you and the words. In any app.</h1>
+    <h1>Just you and the words.<br>In any app.</h1>
     <p class="occasion"><span class="sr">For the difficult mail, the cover letter, the prompt, and every other text that deserves your full attention.</span><span aria-hidden="true">Write <span class="occ" id="occ">the difficult mail</span></span></p>
     <p class="lead">A mail, a Word document, a form in the browser, a chat: wherever your cursor is, press a key and a sheet of paper rolls up in front of your desktop. No windows, no tabs, only the page. When you are done, the text goes back where your cursor was.</p>
     <div class="actions">
