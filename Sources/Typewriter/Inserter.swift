@@ -2,7 +2,8 @@ import AppKit
 import ApplicationServices
 
 enum FocusState {
-    case editable(appName: String)
+    /// `element` is the focused text field, nil only in the video mode.
+    case editable(appName: String, element: AXUIElement?)
     case notEditable
     case unknown // No Accessibility permission.
 }
@@ -35,27 +36,28 @@ enum Inserter {
         AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
         let role = roleValue as? String ?? ""
         let textRoles: Set<String> = [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole, "AXSearchField"]
-        if textRoles.contains(role) { return .editable(appName: name) }
+        if textRoles.contains(role) { return .editable(appName: name, element: element) }
 
         // Web content and custom views: an element with a settable text selection accepts text.
         var settable: DarwinBoolean = false
         if AXUIElementIsAttributeSettable(element, kAXSelectedTextRangeAttribute as CFString, &settable) == .success, settable.boolValue {
-            return .editable(appName: name)
+            return .editable(appName: name, element: element)
         }
         if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success, settable.boolValue {
             var rangeValue: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success {
-                return .editable(appName: name)
+                return .editable(appName: name, element: element)
             }
         }
         return .notEditable
     }
 
-    /// True if the app is in front again and its focused element still accepts text.
-    static func canPaste(into app: NSRunningApplication?) -> Bool {
+    /// True if the app is in front again and the same text field as before has the focus.
+    /// Another field or window of the same app does not count.
+    static func canPaste(into app: NSRunningApplication?, element: AXUIElement) -> Bool {
         guard let app, NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else { return false }
-        if case .editable = focusState(of: app) { return true }
-        return false
+        guard case .editable(_, let focused?) = focusState(of: app) else { return false }
+        return CFEqual(focused, element)
     }
 
     static func copyToClipboard(_ text: String) {

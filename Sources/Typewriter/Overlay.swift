@@ -14,6 +14,8 @@ final class OverlayController: TypewriterViewDelegate {
     private var focus: FocusState = .notEditable
     /// True during the fade-out. A new page opens only after it, so the old close cannot activate the wrong app.
     private var closing = false
+    /// Counts the pages. A paste that is still waiting is cancelled when a new page opens.
+    private var session = 0
     /// The last page, for "Copy Last Page" in the menu. Only in memory.
     private(set) var lastPage: String?
 
@@ -29,15 +31,16 @@ final class OverlayController: TypewriterViewDelegate {
 
     func show() {
         guard window == nil, !closing, let screen = NSScreen.screens.first else { return }
+        session += 1
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         focus = Inserter.focusState(of: previousApp)
         // Debug aid for the website video: the mock-up's text field counts as editable at once.
-        if let name = ProcessInfo.processInfo.environment["TYPEWRITER_APPNAME"] { focus = .editable(appName: name) }
+        if let name = ProcessInfo.processInfo.environment["TYPEWRITER_APPNAME"] { focus = .editable(appName: name, element: nil) }
 
         let hint: String
         switch focus {
-        case .editable(let name):
+        case .editable(let name, _):
             hint = "⌘↩ insert into \(name)    esc discard    ⌘, light"
         case .notEditable: hint = "⌘↩ copy to clipboard    esc discard"
         case .unknown: hint = "⌘↩ copy to clipboard (allow Accessibility to insert directly)    esc discard"
@@ -137,11 +140,14 @@ final class OverlayController: TypewriterViewDelegate {
         close {
             guard !text.isEmpty else { return }
             switch focus {
-            case .editable:
+            case .editable(_, let element):
                 if let stage = Stage.shared {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { stage.insert(text) }
+                } else if let element {
+                    self.paste(text, into: target, element: element, session: self.session)
                 } else {
-                    self.paste(text, into: target)
+                    Inserter.copyToClipboard(text)
+                    HUD.show("Copied to clipboard")
                 }
             case .notEditable, .unknown:
                 Inserter.copyToClipboard(text)
@@ -150,14 +156,17 @@ final class OverlayController: TypewriterViewDelegate {
         }
     }
 
-    /// Pastes when the target app is in front again and its field still accepts text. If that does not
+    /// Pastes when the target app is in front again and the same text field has the focus. If that does not
     /// happen within about a second (the user switched to another app or field), the text goes to the clipboard.
-    private func paste(_ text: String, into target: NSRunningApplication?, attempt: Int = 0) {
+    /// A new page cancels the wait; the text then goes to the clipboard at once.
+    private func paste(_ text: String, into target: NSRunningApplication?, element: AXUIElement, session: Int, attempt: Int = 0) {
         DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0.2 : 0.1)) {
-            if Inserter.canPaste(into: target) {
+            if session != self.session {
+                Inserter.copyToClipboard(text)
+            } else if Inserter.canPaste(into: target, element: element) {
                 Inserter.paste(text)
             } else if attempt < 8 {
-                self.paste(text, into: target, attempt: attempt + 1)
+                self.paste(text, into: target, element: element, session: session, attempt: attempt + 1)
             } else {
                 Inserter.copyToClipboard(text)
                 HUD.show("The text field lost the focus. Copied to clipboard.")
