@@ -13,7 +13,7 @@ APP=~/Applications/Typewriter.app/Contents/MacOS/Typewriter
 pkill -x Typewriter 2>/dev/null || true
 sleep 0.5
 TYPEWRITER_STAGE="$PWD/demo/mail.html" TYPEWRITER_WALLPAPER="$PWD/demo/wallpaper.png" TYPEWRITER_APPNAME="Mail" \
-TYPEWRITER_SCRIPT=$'Dear Ada,\n\ndo not cut a single line. Your notes are betetr⌫⌫⌫ter than the paper itself.\n\nCharles' \
+TYPEWRITER_SCRIPT=$'Dear Ada,\n\ndo not cut a single line. Your notes are better than the paper itself.\n\nCharles' \
   "$APP" >/dev/null 2>&1 &
 sleep 1.5
 

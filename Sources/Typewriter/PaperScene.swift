@@ -944,9 +944,10 @@ final class PaperScene {
         let lineChanged = caretLine != lastCaretLine
         let x = m.printX(caretCol: layout.caretCol)
         let instant = !animated || reduceMotion
-        // A short, softly caught glide while typing; a quick return to the line start on a new line.
-        let duration: CFTimeInterval = instant ? 0 : (lineChanged ? 0.32 : 0.09)
-        let timing = lineChanged ? CAMediaTimingFunction(controlPoints: 0.45, 0, 0.2, 1) : CAMediaTimingFunction(controlPoints: 0.2, 0.7, 0.3, 1)
+        // A soft glide while typing that rolls out without a jump at its start (a steep start looked like
+        // a jump at 60 frames per second); a quick return to the line start on a new line.
+        let duration: CFTimeInterval = instant ? 0 : (lineChanged ? 0.32 : 0.16)
+        let timing = lineChanged ? CAMediaTimingFunction(controlPoints: 0.45, 0, 0.2, 1) : CAMediaTimingFunction(controlPoints: 0, 0, 0.58, 1)
         move(head, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing)
         if style == .desktop { move(glowHead, to: CGPoint(x: x, y: m.printY), duration: duration, timing: timing) }
         move(bandLight, to: CGPoint(x: x, y: 0), duration: duration, timing: timing)
