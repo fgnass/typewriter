@@ -132,28 +132,52 @@ final class TypewriterView: NSView, NSTextInputClient {
 
     /// Types a script like a person, then sends the page. "⌫" in the script is a backspace.
     /// Only a debug aid for the website video (TYPEWRITER_SCRIPT).
+    /// macOS bundles the timers of a background app to save energy, which made 2–3 keys land at once.
+    /// So each key is scheduled by a strict timer after the one before, and App Nap is off meanwhile.
     func play(script: String, start: TimeInterval = 1.2) {
-        var t = start
+        let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+                                                             reason: "Typing a script for a video")
+        var keys = Array(script)
         var previous: Character = " "
-        for c in script {
+        let log = ProcessInfo.processInfo.environment["TYPEWRITER_TIMING"] != nil
+        func gap(before c: Character) -> TimeInterval {
             // Faster inside words, a short stop after punctuation and before a new line.
-            var gap = Double.random(in: 0.11...0.21)
-            if previous == " " { gap += Double.random(in: 0.04...0.18) }
-            if ".,!?".contains(previous) { gap += 0.35 }
-            if c == "\n" { gap += 0.3 }
-            if previous == "\n" { gap += 0.55 } // wait for the carriage to return
-            if c == "⌫" { gap = 0.32 }
-            t += gap
+            var g = Double.random(in: 0.11...0.21)
+            if previous == " " { g += Double.random(in: 0.04...0.18) }
+            if ".,!?".contains(previous) { g += 0.35 }
+            if c == "\n" { g += 0.3 }
+            if previous == "\n" { g += 0.55 } // wait for the carriage to return
+            return g
+        }
+        func schedule(after delay: TimeInterval, _ work: @escaping () -> Void) {
+            let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+            timer.schedule(deadline: .now() + delay, leeway: .milliseconds(1))
+            timer.setEventHandler { timer.cancel(); work() }
+            timer.resume()
+        }
+        func next() {
+            guard !keys.isEmpty else {
+                schedule(after: 1.4) { [weak self] in
+                    ProcessInfo.processInfo.endActivity(activity)
+                    guard let self else { return }
+                    self.delegate?.typewriterViewDidCommit(self)
+                }
+                return
+            }
+            let c = keys.removeFirst()
+            let delay = gap(before: c)
             previous = c
-            DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in
+            let planned = CACurrentMediaTime() + delay
+            schedule(after: delay) { [weak self] in
                 guard let self else { return }
+                if log {
+                    FileHandle.standardError.write(String(format: "%@ late %.0f ms\n", String(c), (CACurrentMediaTime() - planned) * 1000).data(using: .utf8)!)
+                }
                 if c == "⌫" { self.backspace() } else { self.type(String(c)) }
+                next()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + t + 1.4) { [weak self] in
-            guard let self else { return }
-            self.delegate?.typewriterViewDidCommit(self)
-        }
+        schedule(after: start) { next() }
     }
 
     private func backspace() {
