@@ -112,35 +112,68 @@ final class TypewriterView: NSView, NSTextInputClient {
         return ns.substring(with: range)
     }
 
+    /// One entry per character of the text: its UTF-16 offset and length, its line, and its column (nil for
+    /// newlines and for the space that became a line break). A newline belongs to the line it ends, so a blank
+    /// line consists of its newline.
+    private func characterMap() -> [(offset: Int, length: Int, line: Int, col: Int?)] {
+        var map: [(offset: Int, length: Int, line: Int, col: Int?)] = []
+        map.reserveCapacity(model.chars.count)
+        var offset = 0, line = 0
+        for (i, c) in model.chars.enumerated() {
+            let length = String(c).utf16.count
+            if let p = model.layout.positions[i] {
+                line = p.line
+                map.append((offset, length, line, p.col))
+            } else {
+                map.append((offset, length, line, nil))
+                line += 1 // A newline, or a space at the margin: the next character starts a new line.
+            }
+            offset += length
+        }
+        return map
+    }
+
     override func accessibilityLine(for index: Int) -> Int {
         // `index` counts UTF-16 units, the layout counts Characters.
-        var offset = 0
-        for (i, c) in model.chars.enumerated() {
-            offset += String(c).utf16.count
-            if offset > index { return model.layout.positions[i]?.line ?? model.layout.caretLine }
-        }
+        for e in characterMap() where index < e.offset + e.length { return e.line }
         return model.layout.caretLine
     }
 
     override func accessibilityRange(forLine line: Int) -> NSRange {
-        // Character indexes of the line; the model counts Characters, accessibility counts UTF-16 units.
-        var start: Int?, end = 0, offset = 0
-        for (i, c) in model.chars.enumerated() {
-            let len = String(c).utf16.count
-            if let p = model.layout.positions[i], p.line == line {
-                if start == nil { start = offset }
-                end = offset + len
-            }
-            offset += len
+        let map = characterMap()
+        let entries = map.filter { $0.line == line }
+        if let first = entries.first, let last = entries.last {
+            return NSRange(location: first.offset, length: last.offset + last.length - first.offset)
         }
-        guard let start else { return NSRange(location: line == model.layout.caretLine ? offset : NSNotFound, length: 0) }
-        return NSRange(location: start, length: end - start)
+        // The line of the insertion point can be empty; it starts at the end of the text.
+        guard line == model.layout.caretLine else { return NSRange(location: NSNotFound, length: 0) }
+        return NSRange(location: model.text.utf16.count, length: 0)
     }
 
     override func accessibilityFrame(for range: NSRange) -> NSRect {
         let m = metrics
-        let r = NSRect(x: m.cellX(col: model.layout.caretCol), y: m.typingY, width: m.charWidth, height: m.lineHeight)
-        return window?.convertToScreen(convert(r, to: nil)) ?? r
+        let caretLine = model.layout.caretLine
+        func cell(line: Int, col: Int, cells: Int = 1) -> NSRect {
+            NSRect(x: m.cellX(col: col), y: m.typingY + CGFloat(caretLine - line) * m.lineHeight,
+                   width: CGFloat(cells) * m.charWidth, height: m.lineHeight)
+        }
+        let map = characterMap()
+        var rect: NSRect?
+        for (i, e) in map.enumerated() where e.offset < NSMaxRange(range) && e.offset + e.length > range.location {
+            let r = e.col.map { cell(line: e.line, col: $0, cells: TextModel.cells(of: model.chars[i])) }
+                ?? cell(line: e.line, col: model.layout.lines[e.line].last.map { $0.col + $0.cells } ?? 0)
+            rect = rect.map { $0.union(r) } ?? r
+        }
+        if rect == nil {
+            // An empty range: the position before the character at its location, or the insertion point.
+            if let e = map.first(where: { $0.offset >= range.location }), let col = e.col {
+                rect = cell(line: e.line, col: col)
+            } else {
+                rect = cell(line: caretLine, col: model.layout.caretCol)
+            }
+            rect!.size.width = 1
+        }
+        return window?.convertToScreen(convert(rect!, to: nil)) ?? rect!
     }
 
     private func showNotice(_ text: String, duration: TimeInterval = 2) {
@@ -315,8 +348,8 @@ final class TypewriterView: NSView, NSTextInputClient {
 
     func insertText(_ string: Any, replacementRange: NSRange) {
         let s = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        replace(replacementRange) // Before the marked text is cleared: the range can include it.
         setMarked("")
-        replace(replacementRange)
         type(s)
     }
 
@@ -326,12 +359,15 @@ final class TypewriterView: NSView, NSTextInputClient {
         setMarked(s, selection: selectedRange)
     }
 
-    /// An input method replaces typed text, for example when it converts it again. The page can only change
-    /// its end, like a typewriter: a range at the end of the text is removed, a range in the middle is ignored.
+    /// An input method replaces typed text, for example when it converts it again. The range counts in the
+    /// typed text followed by the marked text. The page can only change its end, like a typewriter: a range that
+    /// reaches the end of the typed text (or into the marked text) removes typed text from its start; a range
+    /// in the middle is ignored. The marked text is replaced in any case by the caller.
     private func replace(_ range: NSRange) {
         guard range.location != NSNotFound, range.length > 0 else { return }
-        let length = model.text.utf16.count
-        guard NSMaxRange(range) == length else { return }
+        let typed = model.text.utf16.count
+        guard range.location < typed, NSMaxRange(range) >= typed,
+              NSMaxRange(range) <= typed + marked.utf16.count else { return }
         model.truncate(toUTF16Length: range.location)
         refresh()
     }
