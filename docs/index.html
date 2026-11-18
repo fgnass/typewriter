@@ -74,7 +74,8 @@
   /* A MacBook Air (M1) in rose gold, drawn in CSS. Proportions measured from the real device:
      a thin metal rim around a black bezel, a 16:10 screen, a dark strip at the bottom of the bezel,
      and a thin, wide base with the thumb recess. */
-  .mac { --metal: #dbb8a3; max-width: 1040px; margin: 56px auto 0; position: relative; }
+  /* --metal: the rail color as measured in the video and the screenshots, so housing and carriage match. */
+  .mac { --metal: #d8aba4; max-width: 1040px; margin: 56px auto 0; position: relative; }
   .mac, .mac .lid, .mac .base, .mac .base::after { transition: background 0.7s; }
   .lid {
     margin: 0 9.2%; padding: 0.24% 0.24% 0; border-radius: 3.4% 3.4% 0 0 / 5.2% 5.2% 0 0;
@@ -270,7 +271,7 @@
   <section>
     <h2>The color of your Mac.</h2>
     <p class="lead">Typewriter reads the housing color of your Mac and builds the carriage and the rail to match. Want another one? Press <kbd>⌘</kbd> <kbd>←</kbd> or <kbd>⌘</kbd> <kbd>→</kbd> on the page.</p>
-    <div class="mac" id="switcher">
+    <div class="mac" id="switcher" style="--metal: #dbb9af">
       <div class="lid"><div class="bezel"><div class="screens">
           <img src="img/screen-gold.jpg" width="1800" height="1125" alt="The page in Rose Gold: the carriage and the rail have the color of the Mac." loading="lazy" class="on">
           <img src="img/screen-silver.jpg" width="1800" height="1125" alt="The page in Silver: the carriage and the rail have the color of the Mac." loading="lazy">
@@ -286,16 +287,16 @@
       <div class="base"></div>
     </div>
     <div class="swatches" id="swatches" role="group" aria-label="Color">
-      <button type="button" style="--c: #dbb8a3" data-metal="#dbb8a3" aria-label="Rose Gold" aria-pressed="true"></button>
-      <button type="button" style="--c: #dbdcdf" data-metal="#dbdcdf" aria-label="Silver" aria-pressed="false"></button>
-      <button type="button" style="--c: #78797d" data-metal="#78797d" aria-label="Space Gray" aria-pressed="false"></button>
-      <button type="button" style="--c: #333336" data-metal="#333336" aria-label="Space Black" aria-pressed="false"></button>
-      <button type="button" style="--c: #e3dbcc" data-metal="#e3dbcc" aria-label="Starlight" aria-pressed="false"></button>
-      <button type="button" style="--c: #303845" data-metal="#303845" aria-label="Midnight" aria-pressed="false"></button>
-      <button type="button" style="--c: #c4d4de" data-metal="#c4d4de" aria-label="Sky Blue" aria-pressed="false"></button>
-      <button type="button" style="--c: #e6b8bf" data-metal="#e6b8bf" aria-label="Blush" aria-pressed="false"></button>
-      <button type="button" style="--c: #54598f" data-metal="#54598f" aria-label="Indigo" aria-pressed="false"></button>
-      <button type="button" style="--c: #dbdb8f" data-metal="#dbdb8f" aria-label="Citrus" aria-pressed="false"></button>
+      <button type="button" style="--c: #dbb9af" data-metal="#dbb9af" aria-label="Rose Gold" aria-pressed="true"></button>
+      <button type="button" style="--c: #dee0e2" data-metal="#dee0e2" aria-label="Silver" aria-pressed="false"></button>
+      <button type="button" style="--c: #888a8c" data-metal="#888a8c" aria-label="Space Gray" aria-pressed="false"></button>
+      <button type="button" style="--c: #414044" data-metal="#414044" aria-label="Space Black" aria-pressed="false"></button>
+      <button type="button" style="--c: #e5ded2" data-metal="#e5ded2" aria-label="Starlight" aria-pressed="false"></button>
+      <button type="button" style="--c: #3f4754" data-metal="#3f4754" aria-label="Midnight" aria-pressed="false"></button>
+      <button type="button" style="--c: #ced7e0" data-metal="#ced7e0" aria-label="Sky Blue" aria-pressed="false"></button>
+      <button type="button" style="--c: #e1c3c7" data-metal="#e1c3c7" aria-label="Blush" aria-pressed="false"></button>
+      <button type="button" style="--c: #666d98" data-metal="#666d98" aria-label="Indigo" aria-pressed="false"></button>
+      <button type="button" style="--c: #dedda7" data-metal="#dedda7" aria-label="Citrus" aria-pressed="false"></button>
     </div>
     <p class="swatch-name" id="swatch-name" aria-live="polite">Rose Gold</p>
   </section>
