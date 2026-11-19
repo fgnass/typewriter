@@ -3,7 +3,7 @@ import AVFoundation
 /// Plays typewriter sounds with small random variations, so repeated strikes do not sound identical.
 final class SoundEngine {
     enum Kind: String, CaseIterable {
-        case key, space, carriageReturn = "return", bell, backspace, feed, hum
+        case key, space, carriageReturn = "return", bell, backspace, feed, hum, lamp
     }
 
     enum Style: String, CaseIterable {
@@ -224,6 +224,21 @@ enum Synth {
         case .carriageReturn: return [ratchet(format)]
         case .feed: return [ratchet(format, clicks: 3)]
         case .hum: return []
+        case .lamp: return [toggle(format)]
+        }
+    }
+
+    /// A small switch: a crisp snap with a short, dry body.
+    private static func toggle(_ format: AVAudioFormat) -> AVAudioPCMBuffer {
+        var rng = SplitMix64(seed: 120)
+        var lp = 0.0
+        return buffer(format, seconds: 0.06) { _, t in
+            let noise = rng.nextUnit() * 2 - 1
+            lp += (noise - lp) * 0.5
+            let snap = lp * exp(-t / 0.0015)
+            let ring = sin(2 * .pi * 3300 * t) * exp(-t / 0.004) * 0.25
+            let body = sin(2 * .pi * 230 * t) * exp(-t / 0.012) * 0.3
+            return (snap + ring + body) * 0.45 * min(1, t / 0.0003)
         }
     }
 

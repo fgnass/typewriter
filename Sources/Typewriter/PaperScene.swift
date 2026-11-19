@@ -1,4 +1,5 @@
 import AppKit
+import Carriage
 import QuartzCore
 import CoreText
 import CoreImage
@@ -323,7 +324,6 @@ final class PaperScene {
     let textContainer = CALayer()
     let markedLayer = CATextLayer()
     let hintLayer = CATextLayer()
-    let noticeLayer = CATextLayer()
 
     private let paper = CALayer()
     private let style = PageStyle.current
@@ -347,14 +347,11 @@ final class PaperScene {
     private let band = CALayer()
     private let head = CALayer()
     private let carriage = CALayer()
-    private let ceramicGlow = CAGradientLayer()
-    private let railGlow = CAGradientLayer()
     /// Light of the lamp on the housing band. It moves with the head and is clipped to the band.
     private let bandLight = CALayer()
     private let bandSpill = CAGradientLayer()
     private let lipHighlight = CAGradientLayer()
     private let grooveHighlight = CAGradientLayer()
-    private let lampBloom = CAGradientLayer()
     private let lampLayer = CALayer()
     private let statusLayer = CALayer()
     /// A green light over the status dot while Caps Lock is on.
@@ -372,11 +369,16 @@ final class PaperScene {
     private var lastCaretLine = 0
     private var lightSettings = LightSettings.current
     private var lightGeneration = 0
+    /// The lamp is off for a moment after the page opens; see `switchOnLamp()`.
+    private(set) var lampIsOn: Bool
+    /// The latest image of the lit paper. While the lamp is off, it waits here.
+    private var litImage: CGImage?
 
-    init(metrics m: Metrics, variant: HardwareVariant, scale: CGFloat) {
+    init(metrics m: Metrics, variant: HardwareVariant, scale: CGFloat, lampOn: Bool = true) {
         metrics = m
         self.variant = variant
         self.scale = scale
+        lampIsOn = lampOn
         let b = CGRect(origin: .zero, size: m.size)
         root.frame = b
         root.backgroundColor = Palette.paperBackground
@@ -403,7 +405,8 @@ final class PaperScene {
         // The light falls on paper and ink alike, so it multiplies everything below it.
         // It never brightens, so the ink keeps its contrast.
         // A quick coarse light first, so the page opens at once; the fine version follows in the background.
-        light.contents = Self.makeLightImage(metrics: m, settings: lightSettings, step: 3)
+        litImage = Self.makeLightImage(metrics: m, settings: lightSettings, step: 3)
+        light.contents = lampOn ? litImage : Self.makeUnlitImage(metrics: m, settings: lightSettings)
         light.contentsGravity = .resize
         light.anchorPoint = CGPoint(x: 0.5, y: 0)
         light.bounds = CGRect(x: 0, y: 0, width: m.size.width * 2, height: m.size.height - m.bandHeight)
@@ -425,24 +428,63 @@ final class PaperScene {
 
         setupHead()
 
-        for t in [hintLayer, noticeLayer] {
-            t.font = CTFontCreateWithName(Metrics.fontName, 13, nil)
-            t.fontSize = 13
-            t.foregroundColor = CGColor(gray: 0.25, alpha: 0.5)
-            t.contentsScale = scale
-            t.alignmentMode = .center
-            root.addSublayer(t)
-        }
+        hintLayer.font = CTFontCreateWithName(Metrics.fontName, 13, nil)
+        hintLayer.fontSize = 13
+        hintLayer.foregroundColor = CGColor(gray: 0.25, alpha: 0.5)
+        hintLayer.contentsScale = scale
+        hintLayer.alignmentMode = .center
+        root.addSublayer(hintLayer)
         if style == .desktop {
             hintLayer.foregroundColor = CGColor(gray: 1, alpha: 0.55)
-            noticeLayer.foregroundColor = CGColor(gray: 1, alpha: 0.55)
         }
         hintLayer.frame = CGRect(x: 0, y: m.size.height - 40, width: m.size.width, height: 18)
-        noticeLayer.frame = CGRect(x: 0, y: m.size.height - 64, width: m.size.width, height: 18)
-        noticeLayer.opacity = 0
 
         applyLightTint()
         renderLight(lightSettings)
+        if !lampOn { bandLight.opacity = 0 }
+    }
+
+    /// Switches on the lamp: the strip lights up quickly, then the light spreads over the paper.
+    func switchOnLamp() {
+        guard !lampIsOn else { return }
+        lampIsOn = true
+        let quick = reduceMotion ? 0 : 0.12, slow = reduceMotion ? 0 : 0.45
+        let lamp = Float(min(1, lightSettings.brightness))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        for (layer, value) in [(lampLayer, lamp), (glowLamp, lamp)] {
+            let a = CABasicAnimation(keyPath: "opacity")
+            a.fromValue = 0
+            a.duration = quick
+            layer.opacity = value
+            layer.add(a, forKey: "switchOn")
+        }
+        let spill = CABasicAnimation(keyPath: "opacity")
+        spill.fromValue = 0
+        spill.duration = slow
+        spill.beginTime = CACurrentMediaTime() + quick * 0.5
+        spill.fillMode = .backwards
+        spill.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        bandLight.opacity = 1
+        bandLight.add(spill, forKey: "switchOn")
+        // The contents of a layer cross-fade, so the paper goes from the unlit to the lit image.
+        let paper = CABasicAnimation(keyPath: "contents")
+        paper.fromValue = light.contents
+        paper.toValue = litImage
+        paper.duration = slow
+        paper.beginTime = spill.beginTime
+        paper.fillMode = .backwards
+        paper.timingFunction = spill.timingFunction
+        light.contents = litImage
+        light.add(paper, forKey: "switchOn")
+    }
+
+    /// The paper with the lamp off: only the cool ambient light.
+    private static func makeUnlitImage(metrics m: Metrics, settings: LightSettings) -> CGImage? {
+        var off = settings
+        off.brightness = 0
+        return makeLightImage(metrics: m, settings: off, step: 16)
     }
 
     // MARK: Desktop style
@@ -554,6 +596,8 @@ final class PaperScene {
             let image = Self.makeLightImage(metrics: m, settings: settings)
             DispatchQueue.main.async {
                 guard generation == self.lightGeneration else { return }
+                self.litImage = image
+                guard self.lampIsOn else { return }
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 self.light.contents = image
@@ -822,6 +866,7 @@ final class PaperScene {
         guard settings != lightSettings else { return }
         lightSettings = settings
         applyLightTint()
+        if !lampIsOn { light.contents = Self.makeUnlitImage(metrics: metrics, settings: settings) }
         renderLight(settings)
     }
 
@@ -845,7 +890,7 @@ final class PaperScene {
     private func applyLightTint() {
         let c = lightSettings.color
         let k = min(1, lightSettings.brightness)
-        lampLayer.opacity = Float(min(1, lightSettings.brightness))
+        lampLayer.opacity = lampIsOn ? Float(min(1, lightSettings.brightness)) : 0
         glowLamp.opacity = lampLayer.opacity
         // The glowing lamp edge has the color of the light: nearly white in its core, its glow in the light color.
         let core = CGColor(srgbRed: 1, green: 1 - (1 - c.g) * 0.3, blue: 1 - (1 - c.b) * 0.3, alpha: 1)
@@ -857,17 +902,12 @@ final class PaperScene {
         func warm(_ a: Double) -> CGColor { CGColor(srgbRed: c.r, green: c.g * 0.92, blue: c.b * 0.75, alpha: a) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        ceramicGlow.colors = [warm(0.5 * k), warm(0.12 * k), warm(0)]
-        ceramicGlow.locations = [0, 0.45, 1]
-        railGlow.colors = [warm(0.3 * k), warm(0)]
         bandSpill.colors = [warm(0.12 * k), warm(0.04 * k), warm(0)]
         bandSpill.locations = [0, 0.4, 1]
         func white(_ a: Double) -> CGColor { CGColor(srgbRed: 1, green: 0.97 * c.g / max(c.r, 0.01), blue: 0.9 * c.b / max(c.r, 0.01), alpha: a) }
         lipHighlight.colors = [white(min(1, 1.1 * k)), warm(0.4 * k), warm(0)]
         lipHighlight.locations = [0, 0.35, 1]
         grooveHighlight.colors = [white(min(1, 0.95 * k)), warm(0.25 * k), warm(0)]
-        lampBloom.colors = [white(0.85 * k), warm(0.35 * k), warm(0)]
-        lampBloom.locations = [0, 0.3, 1]
         CATransaction.commit()
     }
 

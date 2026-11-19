@@ -42,6 +42,11 @@ enum ThermalSynth {
             return [buffer(s, format)]
         case .hum:
             return []
+        case .lamp:
+            // The lamp switches on with a soft, damped tick.
+            var s = mix(tick(seed: 130, cutoff: 0.3, length: 0.012), at: 0, with: tap(seed: 131, pitch: 1.3), offset: 0.004)
+            normalize(&s, peak: 0.16)
+            return [buffer(s, format)]
         }
     }
 

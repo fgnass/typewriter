@@ -31,7 +31,7 @@ final class TypewriterView: NSView, NSTextInputClient {
         self.scale = scale
         self.hint = hint
         metrics = Metrics(size: frame.size)
-        scene = PaperScene(metrics: metrics, variant: variant, scale: scale)
+        scene = PaperScene(metrics: metrics, variant: variant, scale: scale, lampOn: false)
         super.init(frame: frame)
         layer = CALayer()
         wantsLayer = true
@@ -50,6 +50,12 @@ final class TypewriterView: NSView, NSTextInputClient {
             if let v = Hardware.current { self?.reloadScene(variant: v) }
         }
 
+        // The lamp switches on a moment after the page has faded in.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, !self.scene.lampIsOn else { return }
+            self.sounds.play(.lamp)
+            self.scene.switchOnLamp()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             CATransaction.begin()
             CATransaction.setAnimationDuration(1.5)
@@ -70,7 +76,7 @@ final class TypewriterView: NSView, NSTextInputClient {
     private func reloadScene(variant: HardwareVariant) {
         let old = scene
         metrics = Metrics(size: bounds.size)
-        scene = PaperScene(metrics: metrics, variant: variant, scale: scale)
+        scene = PaperScene(metrics: metrics, variant: variant, scale: scale, lampOn: old.lampIsOn)
         scene.setHint(hint)
         scene.hintLayer.opacity = old.hintLayer.opacity
         scene.update(layout: model.layout, ghosts: model.ghosts, animated: false)
@@ -176,22 +182,6 @@ final class TypewriterView: NSView, NSTextInputClient {
         return window?.convertToScreen(convert(rect!, to: nil)) ?? rect!
     }
 
-    private func showNotice(_ text: String, duration: TimeInterval = 2) {
-        let notice = scene.noticeLayer
-        notice.string = text
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.2)
-        notice.opacity = 1
-        CATransaction.commit()
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            guard (notice.string as? String) == text else { return }
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.6)
-            notice.opacity = 0
-            CATransaction.commit()
-        }
-    }
-
     // MARK: Editing
 
     private func type(_ s: String) {
@@ -289,19 +279,11 @@ final class TypewriterView: NSView, NSTextInputClient {
         guard flags.contains(.command) else { return super.performKeyEquivalent(with: event) }
         switch event.keyCode {
         case 36, 76: delegate?.typewriterViewDidCommit(self)
-        // ⌘← / ⌘→ cycle the hardware color.
-        case 123: changeHardware(-1)
-        case 124: changeHardware(1)
         default:
             // ⌘, shows the settings. The panel does not take the keyboard focus.
             if event.charactersIgnoringModifiers == "," { SettingsPanel.shared.toggle() }
         }
         return true // Swallow all other command shortcuts.
-    }
-
-    private func changeHardware(_ step: Int) {
-        Hardware.cycle(step) // The scene follows through the change notification.
-        if let v = Hardware.current { showNotice(v.title, duration: 1.5) }
     }
 
     override func flagsChanged(with event: NSEvent) {

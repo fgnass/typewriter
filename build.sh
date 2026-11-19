@@ -18,7 +18,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Typewriter"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
-cp -R Resources/Fin "$APP/Contents/Resources/Fin"
+# Hardware images for all colors, tinted from the rose gold originals. They stay in build/Hardware to look at.
+swift build -c release --product hardware-assets
+rm -rf build/Hardware
+"$(swift build -c release --show-bin-path)/hardware-assets" Resources/Fin build/Hardware
+cp -R build/Hardware "$APP/Contents/Resources/Hardware"
+mkdir -p "$APP/Contents/Resources/Fin"
+cp Resources/Fin/paper.png "$APP/Contents/Resources/Fin/"
 cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
 # All recorded sound sets; the user picks one in the settings.
 for set in Resources/Sounds-*; do cp -R "$set" "$APP/Contents/Resources/"; done
