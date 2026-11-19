@@ -37,7 +37,8 @@ Typewriter needs it to paste into other apps.
 swift scripts/make-icon.swift   # regenerate Resources/AppIcon.icns from Resources/Icon/source.png
 ```
 
-Requires the Xcode Command Line Tools.
+Requires the Xcode Command Line Tools with Swift 5.10 or later. `build.sh` builds for the
+architecture of this Mac (set `TYPEWRITER_ARCH` for another one); the release is always for Apple silicon.
 
 Signing: set `TYPEWRITER_SIGN_IDENTITY` to sign with a given identity. Otherwise
 `build.sh` uses a certificate named "Typewriter Local Signing" if one is in the

@@ -7,8 +7,10 @@ set -euo pipefail
 cd "${0:A:h}"
 MODE="${1:-}"
 
-# Always Apple silicon, also when built on an Intel Mac: the release is for Apple silicon only.
-ARCH="${TYPEWRITER_ARCH:-arm64}"
+# The architecture of this Mac, so a build from source also works on an Intel Mac.
+# The release is for Apple silicon only, also when it is built on an Intel Mac.
+if [[ "$MODE" == release ]]; then DEFAULT_ARCH=arm64; else DEFAULT_ARCH="$(uname -m)"; fi
+ARCH="${TYPEWRITER_ARCH:-$DEFAULT_ARCH}"
 swift build -c release --arch "$ARCH"
 BIN="$(swift build -c release --arch "$ARCH" --show-bin-path)/Typewriter"
 
