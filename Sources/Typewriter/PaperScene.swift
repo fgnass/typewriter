@@ -319,7 +319,7 @@ final class GlyphLayer: CALayer {
 /// (contact shadow, carriage with ambient shadow, warm reflexes).
 final class PaperScene {
     let metrics: Metrics
-    let variant: HardwareVariant
+    private(set) var variant: HardwareVariant
     let root = CALayer()
     let textContainer = CALayer()
     let markedLayer = CATextLayer()
@@ -346,6 +346,11 @@ final class PaperScene {
     private let light = CALayer()
     private let band = CALayer()
     private let head = CALayer()
+    private let carriageBody = CALayer()
+    /// Room shading on the rail: the light of the paper from above, and the darker ends.
+    private let paperGlow = CAGradientLayer()
+    private let edgeShade = CAGradientLayer()
+    private var grille = CALayer()
     private let carriage = CALayer()
     /// Light of the lamp on the housing band. It moves with the head and is clipped to the band.
     private let bandLight = CALayer()
@@ -634,14 +639,18 @@ final class PaperScene {
         }
 
         // The carriage with a soft ambient shadow from its own contour.
-        let body = layer(variant.carriage)
+        let body = carriageBody
+        body.contents = variant.carriage
+        body.contentsGravity = .resize
+        body.frame = m.carriageFrame
         body.shadowColor = CGColor(gray: 0, alpha: 1)
         // The room light comes from the upper left, so the shadow falls to the lower right.
         body.shadowOpacity = 0.38
         body.shadowRadius = 5
         body.shadowOffset = CGSize(width: 2.5, height: -2.5)
         head.addSublayer(body)
-        head.addSublayer(makeGrille())
+        grille = makeGrille()
+        head.addSublayer(grille)
 
         // Light layers: the lamp strip follows the brightness, the status light flashes when a character is made.
         lampLayer.contents = variant.lamp
@@ -783,6 +792,18 @@ final class PaperScene {
         return CGPoint(x: right - g.inset - g.hole / 2, y: g.midY + CGFloat(g.rows - 1) / 2 * g.pitch)
     }
 
+    /// Shows other hardware images in the same scene: another color, or the same color in another room light.
+    /// Only the pictures change, so nothing else on the page moves or flashes.
+    func updateHardware(_ variant: HardwareVariant) {
+        self.variant = variant
+        band.contents = Self.makeBandImage(variant: variant, metrics: metrics, scale: scale)
+        carriageBody.contents = variant.carriage
+        grille.contents = makeGrille().contents
+        lampLayer.contents = variant.lamp
+        statusLayer.contents = variant.status
+        applyRoomShading()
+    }
+
     /// A fine speaker grille in the left part of the body, made from the single hole image.
     private func makeGrille() -> CALayer {
         let m = metrics
@@ -858,6 +879,54 @@ final class PaperScene {
             bandLight.addSublayer(l)
         }
         band.addSublayer(bandLight)
+        setupRoomShading()
+    }
+
+    /// In a dark room the paper is the brightest thing near the rail: it lights the rail below it, most on
+    /// the lip that faces it. The ends of the rail, far from the paper, are a little darker. Both are soft.
+    private func setupRoomShading() {
+        let m = metrics
+        let full = CGRect(x: 0, y: 0, width: m.size.width, height: m.bandHeight)
+        edgeShade.frame = full
+        edgeShade.startPoint = CGPoint(x: 0, y: 0.5)
+        edgeShade.endPoint = CGPoint(x: 1, y: 0.5)
+        edgeShade.locations = [0, 0.1, 0.22, 0.36, 0.64, 0.78, 0.9, 1]
+        edgeShade.colors = [1, 0.62, 0.26, 0, 0, 0.26, 0.62, 1].map { CGColor(gray: 0, alpha: $0) }
+
+        // The paper covers the whole width, or only the strip in the desktop style.
+        let paperX = style == .desktop ? m.left - paperSideMargin : 0
+        let paperWidth = style == .desktop ? CGFloat(m.columns) * m.charWidth + paperSideMargin * 2 : m.size.width
+        let soft = m.bandHeight * 4
+        paperGlow.frame = CGRect(x: paperX - soft, y: 0, width: paperWidth + soft * 2, height: m.bandHeight)
+        paperGlow.startPoint = CGPoint(x: 0.5, y: 1)
+        paperGlow.endPoint = CGPoint(x: 0.5, y: 0)
+        paperGlow.locations = [0, 0.3, 1]
+        // Light adds up on metal.
+        paperGlow.compositingFilter = CIFilter(name: "CIAdditionCompositing")
+        let sides = CAGradientLayer()
+        sides.frame = paperGlow.bounds
+        sides.startPoint = CGPoint(x: 0, y: 0.5)
+        sides.endPoint = CGPoint(x: 1, y: 0.5)
+        let edge = Double(soft / paperGlow.bounds.width)
+        sides.locations = [0, edge * 0.5, edge * 1.5, 1 - edge * 1.5, 1 - edge * 0.5, 1].map { NSNumber(value: $0) }
+        sides.colors = [0, 0.3, 1, 1, 0.3, 0].map { CGColor(gray: 0, alpha: $0) }
+        paperGlow.mask = sides
+
+        band.insertSublayer(edgeShade, at: 0)
+        band.insertSublayer(paperGlow, above: edgeShade)
+        applyRoomShading()
+    }
+
+    private func applyRoomShading() {
+        let strength = variant.roomShading
+        edgeShade.opacity = Float(0.3 * strength)
+        // The paper light on the metal has the color of the metal.
+        let c = Hardware.swatchColor(variant.id)
+        func glow(_ k: Double) -> CGColor {
+            CGColor(srgbRed: c.redComponent * k, green: c.greenComponent * k, blue: c.blueComponent * k, alpha: 1)
+        }
+        paperGlow.colors = [glow(0.16), glow(0.09), glow(0.03)]
+        paperGlow.opacity = Float(strength)
     }
 
     // MARK: Light

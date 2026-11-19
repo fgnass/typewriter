@@ -10,6 +10,23 @@ final class SettingsModel: ObservableObject {
     @Published var hardwareID = Hardware.currentID {
         didSet { if Hardware.currentID != hardwareID { Hardware.currentID = hardwareID } }
     }
+    @Published var roomLight = RoomLight.temperature {
+        didSet { if RoomLight.temperature != roomLight { RoomLight.temperature = roomLight } }
+    }
+    @Published var roomLightAutomatic = RoomLight.automatic {
+        didSet { if RoomLight.automatic != roomLightAutomatic { RoomLight.automatic = roomLightAutomatic } }
+    }
+    @Published var hardwareBrightness = RoomLight.brightness {
+        didSet { if RoomLight.brightness != hardwareBrightness { RoomLight.brightness = hardwareBrightness } }
+    }
+    @Published var hardwareTint = RoomLight.tint {
+        didSet { if RoomLight.tint != hardwareTint { RoomLight.tint = hardwareTint } }
+    }
+    /// The look in use, to show the measured values in automatic mode.
+    @Published private(set) var look = RoomLight.look
+    @Published private(set) var lookIsMeasured = RoomLight.isMeasured
+    /// The raw values of the sensor and the display, to compare a manual setting with the automatic one.
+    @Published private(set) var sensorText = ""
     @Published var style = SoundEngine.Style.thermal {
         didSet {
             guard let sounds, sounds.style != style else { return }
@@ -76,13 +93,32 @@ final class SettingsModel: ObservableObject {
 
     init() {
         NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
-            guard let self, self.hardwareID != Hardware.currentID else { return }
-            self.hardwareID = Hardware.currentID
+            guard let self else { return }
+            if self.look != RoomLight.look { self.look = RoomLight.look }
+            if self.lookIsMeasured != RoomLight.isMeasured { self.lookIsMeasured = RoomLight.isMeasured }
+            if self.hardwareID != Hardware.currentID { self.hardwareID = Hardware.currentID }
         }
+    }
+
+    /// The page measures the room light only while it is open. The settings can be open without the page,
+    /// so they measure too. The page is always on the first screen.
+    func measureRoomLight() {
+        RoomLight.measure(on: NSScreen.screens.first)
+        let text = RoomLight.reading.map {
+            "\(Int($0.lux.rounded())) lx · \(Int($0.kelvin.rounded())) K · display \(Int(($0.display * 16).rounded()))/16"
+        } ?? "No sensor for this screen"
+        if text != sensorText { sensorText = text }
     }
 
     func reload() {
         hardwareID = Hardware.currentID
+        roomLight = RoomLight.temperature
+        measureRoomLight()
+        roomLightAutomatic = RoomLight.automatic
+        hardwareBrightness = RoomLight.brightness
+        hardwareTint = RoomLight.tint
+        look = RoomLight.look
+        lookIsMeasured = RoomLight.isMeasured
         light = LightSettings.current
         focus = FocusMode.enabled
         shortcut = Shortcut.current
@@ -127,7 +163,7 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
             }
 
-            Section("Hardware") {
+            Section {
                 LabeledContent {
                     HStack(spacing: 8) {
                         ForEach(Hardware.ids, id: \.id) { entry in
@@ -144,6 +180,38 @@ struct SettingsView: View {
                 } label: {
                     Text(Hardware.ids.first { $0.id == model.hardwareID }?.title ?? "")
                 }
+                Picker("Room Light", selection: $model.roomLightAutomatic) {
+                    Text("Manual").tag(false)
+                    Text("Automatic").tag(true)
+                }
+                .pickerStyle(.segmented)
+                if model.roomLightAutomatic {
+                    LabeledContent("Measured") {
+                        Text(model.lookIsMeasured
+                             ? "\(Self.kelvinTitle(model.look.kelvin)) · \(Int((RoomLight.perceived(model.look.gain) * 100).rounded())) %"
+                             : "No sensor for this screen")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    hardwareSlider("Color", value: $model.roomLight, range: RoomLight.range, step: 50,
+                                   text: Self.kelvinTitle(model.roomLight))
+                    hardwareSlider("Tint", value: $model.hardwareTint, range: RoomLight.tintRange, step: 1,
+                                   text: "\(Int(model.hardwareTint))")
+                    hardwareSlider("Brightness", value: $model.hardwareBrightness, range: RoomLight.brightnessRange, step: 0.01,
+                                   text: "\(Int((model.hardwareBrightness * 100).rounded())) %")
+                }
+                LabeledContent("Sensor") {
+                    Text(model.sensorText)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Hardware")
+            } footer: {
+                Text("Shows the hardware as the housing of your Mac looks in the light of the room. Automatic uses the light sensor of the built-in display.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -201,10 +269,36 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            if SettingsPanel.shared.isVisible { model.measureRoomLight() }
+        }
         // The panel never takes the focus, so system switches would always look inactive (grey).
         .toggleStyle(AlwaysActiveSwitch())
         .frame(width: 440)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+extension SettingsView {
+    static func kelvinTitle(_ kelvin: Double) -> String {
+        kelvin >= RoomLight.neutral ? "Daylight" : "\(Int(kelvin)) K"
+    }
+
+    func hardwareSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
+                        text: String) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 10) {
+                Slider(value: Binding(get: { value.wrappedValue },
+                                      set: { value.wrappedValue = ($0 / step).rounded() * step }),
+                       in: range)
+                    .controlSize(.small)
+                Text(text)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 60, alignment: .trailing)
+            }
+            .frame(width: 230)
+        }
     }
 }
 

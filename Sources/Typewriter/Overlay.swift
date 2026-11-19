@@ -56,6 +56,7 @@ final class OverlayController: TypewriterViewDelegate {
         w.hasShadow = false
         w.setFrame(frame, display: false)
 
+        RoomLight.measure(on: screen, notify: false)
         guard let variant = Hardware.current else {
             HUD.show("Hardware assets are missing")
             return

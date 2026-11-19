@@ -19,6 +19,7 @@ final class TypewriterView: NSView, NSTextInputClient {
     private var lightObserver: NSObjectProtocol?
     private var hardwareObserver: NSObjectProtocol?
     private var styleObserver: NSObjectProtocol?
+    private var roomLightTimer: Timer?
 
     private var marked: String = ""
     /// The selection inside the marked text, as the input method sets it (UTF-16 units).
@@ -44,7 +45,7 @@ final class TypewriterView: NSView, NSTextInputClient {
             self?.scene.updateLight(LightSettings.current)
         }
         hardwareObserver = NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
-            if let v = Hardware.current { self?.reloadScene(variant: v) }
+            if let v = Hardware.current { self?.scene.updateHardware(v) }
         }
         styleObserver = NotificationCenter.default.addObserver(forName: PageStyle.didChange, object: nil, queue: .main) { [weak self] _ in
             if let v = Hardware.current { self?.reloadScene(variant: v) }
@@ -70,6 +71,20 @@ final class TypewriterView: NSView, NSTextInputClient {
         if let lightObserver { NotificationCenter.default.removeObserver(lightObserver) }
         if let hardwareObserver { NotificationCenter.default.removeObserver(hardwareObserver) }
         if let styleObserver { NotificationCenter.default.removeObserver(styleObserver) }
+        roomLightTimer?.invalidate()
+    }
+
+    /// While the page is on a screen, the room light is measured once a second (only in automatic mode).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        roomLightTimer?.invalidate()
+        roomLightTimer = nil
+        guard window != nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            RoomLight.measure(on: self?.window?.screen)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        roomLightTimer = timer
     }
 
     /// Builds the scene again for another hardware variant. The text stays.
