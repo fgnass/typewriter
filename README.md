@@ -47,6 +47,17 @@ across builds; with ad hoc signing, macOS asks again after each build.
 
 The website is in `docs/` (GitHub Pages).
 
+## Releases
+
+Releases are made by [release-please](https://github.com/googleapis/release-please)
+from the commit messages: `fix:` makes a patch release, `feat:` a minor release.
+After each push to `main`, a GitHub Action keeps a release pull request up to date
+with the next version and the changelog. Merge it to publish the release. A second
+job then builds the app on macOS and attaches `Typewriter.zip` to it.
+
+To be reminded of unreleased changes when you push, turn on the hook in `.githooks`
+once per clone: `git config core.hooksPath .githooks`
+
 ## License
 
 MIT, see [LICENSE](LICENSE). This covers the code, the artwork and the website.
