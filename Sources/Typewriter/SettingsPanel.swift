@@ -22,9 +22,9 @@ final class SettingsModel: ObservableObject {
     @Published var hardwareTint = RoomLight.tint {
         didSet { if RoomLight.tint != hardwareTint { RoomLight.tint = hardwareTint } }
     }
-    /// The look in use, to show the measured values in automatic mode.
-    @Published private(set) var look = RoomLight.look
-    @Published private(set) var lookIsMeasured = RoomLight.isMeasured
+    @Published var roomLightStrength = RoomLight.strength {
+        didSet { if RoomLight.strength != roomLightStrength { RoomLight.strength = roomLightStrength } }
+    }
     /// The raw values of the sensor and the display, to compare a manual setting with the automatic one.
     @Published private(set) var sensorText = ""
     @Published var style = SoundEngine.Style.thermal {
@@ -94,8 +94,6 @@ final class SettingsModel: ObservableObject {
     init() {
         NotificationCenter.default.addObserver(forName: Hardware.didChange, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            if self.look != RoomLight.look { self.look = RoomLight.look }
-            if self.lookIsMeasured != RoomLight.isMeasured { self.lookIsMeasured = RoomLight.isMeasured }
             if self.hardwareID != Hardware.currentID { self.hardwareID = Hardware.currentID }
         }
     }
@@ -117,8 +115,7 @@ final class SettingsModel: ObservableObject {
         roomLightAutomatic = RoomLight.automatic
         hardwareBrightness = RoomLight.brightness
         hardwareTint = RoomLight.tint
-        look = RoomLight.look
-        lookIsMeasured = RoomLight.isMeasured
+        roomLightStrength = RoomLight.strength
         light = LightSettings.current
         focus = FocusMode.enabled
         shortcut = Shortcut.current
@@ -186,13 +183,8 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 if model.roomLightAutomatic {
-                    LabeledContent("Measured") {
-                        Text(model.lookIsMeasured
-                             ? "\(Self.kelvinTitle(model.look.kelvin)) · \(Int((RoomLight.perceived(model.look.gain) * 100).rounded())) %"
-                             : "No sensor for this screen")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
+                    hardwareSlider("Room Light on Housing", value: $model.roomLightStrength, range: RoomLight.strengthRange,
+                                   step: 0.1, text: String(format: "× %.1f", pow(2, model.roomLightStrength)))
                 } else {
                     hardwareSlider("Color", value: $model.roomLight, range: RoomLight.range, step: 50,
                                    text: Self.kelvinTitle(model.roomLight))
@@ -209,7 +201,7 @@ struct SettingsView: View {
             } header: {
                 Text("Hardware")
             } footer: {
-                Text("Shows the hardware as the housing of your Mac looks in the light of the room. Automatic uses the light sensor of the built-in display.")
+                Text("Shows the hardware as the housing of your Mac looks in the light of the room. Automatic uses the light sensor of the built-in display. The sensor looks at you and the housing lies flat, so the room light can be stronger or weaker on the housing than at the sensor. Adjust that with the slider.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

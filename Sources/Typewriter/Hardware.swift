@@ -13,9 +13,8 @@ struct HardwareVariant {
     let lamp: CGImage
     let status: CGImage
     let grilleHole: CGImage
-    /// How dark the room is for the hardware, 0 (daylight) to 1. In a dark room the light of the paper
-    /// shows on the rail, and the ends of the rail fall into the dark.
-    var roomShading: Double = 0
+    /// How the room lights the hardware: the scene needs it for the light of the paper on the rail.
+    var lighting = RoomLight.Lighting()
 }
 
 enum Hardware {
@@ -76,24 +75,24 @@ enum Hardware {
 
     /// The chosen color as it looks in the room light.
     static var current: HardwareVariant? {
-        let id = currentID, look = RoomLight.look
-        if let a = adapted, a.id == id, a.look == look { return a.variant }
-        guard let v = variant(id) else { return nil }
+        let id = currentID
         let base = ids.first { $0.id == id }?.color ?? HardwareColors.railRoseGold
-        let onCarriage = RoomLight.carriageLook(look)
+        let lighting = RoomLight.lighting(base: base)
+        if let a = adapted, a.id == id, a.variant.lighting == lighting { return a.variant }
+        guard let v = variant(id) else { return nil }
         // The lamp and the status dot make their own light, so they stay as they are.
         let lit = HardwareVariant(id: v.id, title: v.title,
-                                  carriage: RoomLight.adapt(v.carriage, to: onCarriage, base: base) ?? v.carriage,
-                                  rail: RoomLight.adapt(v.rail, to: look, base: base) ?? v.rail,
+                                  carriage: RoomLight.adapt(v.carriage, with: lighting.carriage, base: base) ?? v.carriage,
+                                  rail: RoomLight.adapt(v.rail, with: lighting.rail, base: base) ?? v.rail,
                                   lamp: v.lamp, status: v.status,
-                                  grilleHole: RoomLight.adapt(v.grilleHole, to: onCarriage, base: base) ?? v.grilleHole,
-                                  roomShading: min(1, max(0, 1 - RoomLight.perceived(look.gain))))
-        adapted = (id, look, lit)
+                                  grilleHole: RoomLight.adapt(v.grilleHole, with: lighting.carriage, base: base) ?? v.grilleHole,
+                                  lighting: lighting)
+        adapted = (id, lit)
         return lit
     }
 
     /// The last variant made for a room light, so a redraw does not make it again.
-    private static var adapted: (id: String, look: RoomLight.Look, variant: HardwareVariant)?
+    private static var adapted: (id: String, variant: HardwareVariant)?
 
     static func variant(_ id: String) -> HardwareVariant? {
         if let v = cache[id] { return v }

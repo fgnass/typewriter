@@ -350,6 +350,10 @@ final class PaperScene {
     /// Room shading on the rail: the light of the paper from above, and the darker ends.
     private let paperGlow = CAGradientLayer()
     private let edgeShade = CAGradientLayer()
+    /// The light of the paper on the carriage: the same light as on the face of the rail below it,
+    /// added in the same way, so carriage and rail look like one metal.
+    private let carriageGlow = CALayer()
+    private let carriageGlowMask = CALayer()
     private var grille = CALayer()
     private let carriage = CALayer()
     /// Light of the lamp on the housing band. It moves with the head and is clipped to the band.
@@ -391,7 +395,16 @@ final class PaperScene {
         paper.frame = b
         paper.contents = Self.makePaperImage(size: m.size, scale: scale)
         paper.contentsGravity = .resize
-        if style == .desktop { setupDesktop() }
+        if style == .desktop {
+            setupDesktop()
+        } else {
+            // The paper style has the cool evening color around the page. Later, so it does not change the
+            // hardware while this scene is made.
+            DispatchQueue.main.async {
+                let c = Palette.paperBackground.components ?? [1, 1, 1, 1]
+                RoomLight.backdrop = RoomLight.decode(SIMD3(Double(c[0]), Double(c[1]), Double(c[2])))
+            }
+        }
         root.addSublayer(paper)
 
         textContainer.anchorPoint = .zero
@@ -517,7 +530,14 @@ final class PaperScene {
         let size = m.size, scale = self.scale
         DispatchQueue.global(qos: .userInitiated).async {
             let image = Self.makeWallpaperImage(size: size, scale: scale)
+            let mean = image.flatMap(Self.meanColor)
             DispatchQueue.main.async {
+                // The backdrop also lights the housing: the picture at 62 % in the cool evening light.
+                if let mean {
+                    let dusk = Palette.paperBackground.components ?? [1, 1, 1, 1]
+                    RoomLight.backdrop = RoomLight.decode(SIMD3(mean.x * 0.62 * Double(dusk[0]), mean.y * 0.62 * Double(dusk[1]),
+                                                                mean.z * 0.62 * Double(dusk[2])))
+                }
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 self.wallpaper.contents = image
@@ -572,6 +592,21 @@ final class PaperScene {
 
     /// The desktop picture of the main screen, filled to the screen size and a little less colorful.
     /// Dynamic pictures and the moving aerials give their still image here.
+    /// The mean color of an image (sRGB).
+    private static func meanColor(_ image: CGImage) -> SIMD3<Double>? {
+        // A small copy first: the scaling takes the mean of the pixels.
+        let n = 24
+        var px = [UInt8](repeating: 0, count: n * n * 4)
+        guard let ctx = CGContext(data: &px, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: n, height: n))
+        var sum = SIMD3<Double>(repeating: 0)
+        for i in stride(from: 0, to: px.count, by: 4) { sum += SIMD3(Double(px[i]), Double(px[i + 1]), Double(px[i + 2])) }
+        return sum / Double(n * n) / 255
+    }
+
     private static func makeWallpaperImage(size: CGSize, scale: CGFloat) -> CGImage? {
         // Debug aid for screenshots: another picture than the real desktop.
         let override = ProcessInfo.processInfo.environment["TYPEWRITER_WALLPAPER"].map { URL(fileURLWithPath: $0) }
@@ -651,6 +686,13 @@ final class PaperScene {
         head.addSublayer(body)
         grille = makeGrille()
         head.addSublayer(grille)
+        carriageGlow.frame = m.carriageFrame
+        carriageGlow.compositingFilter = CIFilter(name: "CIAdditionCompositing")
+        carriageGlowMask.frame = carriageGlow.bounds
+        carriageGlowMask.contentsGravity = .resize
+        carriageGlowMask.contents = variant.carriage
+        carriageGlow.mask = carriageGlowMask
+        head.addSublayer(carriageGlow)
 
         // Light layers: the lamp strip follows the brightness, the status light flashes when a character is made.
         lampLayer.contents = variant.lamp
@@ -918,15 +960,15 @@ final class PaperScene {
     }
 
     private func applyRoomShading() {
-        let strength = variant.roomShading
-        edgeShade.opacity = Float(0.3 * strength)
-        // The paper light on the metal has the color of the metal.
-        let c = Hardware.swatchColor(variant.id)
+        let lighting = variant.lighting
+        edgeShade.opacity = Float(0.3 * lighting.edge)
         func glow(_ k: Double) -> CGColor {
-            CGColor(srgbRed: c.redComponent * k, green: c.greenComponent * k, blue: c.blueComponent * k, alpha: 1)
+            CGColor(srgbRed: lighting.glow.x * k, green: lighting.glow.y * k, blue: lighting.glow.z * k, alpha: 1)
         }
-        paperGlow.colors = [glow(0.16), glow(0.09), glow(0.03)]
-        paperGlow.opacity = Float(strength)
+        paperGlow.colors = [glow(1), glow(0.56), glow(0.19)]
+        // The face of the rail next to the carriage has about this part of the glow.
+        carriageGlow.backgroundColor = glow(0.55)
+        carriageGlowMask.contents = variant.carriage
     }
 
     // MARK: Light
@@ -944,15 +986,6 @@ final class PaperScene {
         CATransaction.setDisableActions(true)
         capsLayer.isHidden = !on
         CATransaction.commit()
-    }
-
-    /// The status light lights up for a moment when a character is made.
-    func flashStatus() {
-        let a = CAKeyframeAnimation(keyPath: "opacity")
-        a.values = [0, 0.8, 0]
-        a.keyTimes = [0, 0.2, 1]
-        a.duration = 0.3
-        statusLayer.add(a, forKey: "flash")
     }
 
     /// The reflexes use the light color and fade out with the brightness.

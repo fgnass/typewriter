@@ -221,7 +221,6 @@ final class TypewriterView: NSView, NSTextInputClient {
             sounds.play(.bell)
         }
         refresh()
-        if clean.contains(where: { !$0.isWhitespace }) { scene.flashStatus() }
         delegate?.typewriterViewDidChange(self)
     }
 
