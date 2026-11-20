@@ -118,6 +118,16 @@ enum RoomLight {
     /// The room light on the housing relative to the white of the display, at 24 lux and full display brightness.
     /// Found by eye on a rose gold MacBook Air in lamp light of 28 lux and 2100 K: more made the metal too warm.
     private static let roomShare = 0.018
+    /// How much of the light at the sensor reaches the housing. The sensor stands upright and the housing lies flat.
+    /// Lamp light comes from above: it is weak at the sensor and strong on the housing. Daylight comes from the
+    /// side through a window: it is strong at the sensor and weak on the housing. The color tells the two apart.
+    /// Found by eye: in daylight of 420 lux and 9000 K the picture brightness that matched was 40 % to 47 %,
+    /// nearly the light of the display alone.
+    private static func reach(mired: Double) -> Double {
+        let lamp = min(1, max(0, (mired - 200) / (333 - 200))) // 0 at 5000 K and cooler, 1 at 3000 K and warmer
+        return 0.04 + 0.96 * lamp * lamp * (3 - 2 * lamp)
+    }
+
     /// The part of the room light that grows when the display gets darker. Found by eye.
     private static let roomDimming = 0.25
     /// The part of the display light that the housing next to the display reflects. With the room light it
@@ -126,7 +136,7 @@ enum RoomLight {
     /// The part of the paper in the display light, below the paper and far from it. An estimate.
     private static let paperPart = (below: 0.8, far: 0.3)
     /// The light of the paper near the rail, in linear sRGB relative to the white of the display. An estimate.
-    private static let paperLight = SIMD3(0.86, 0.87, 0.9)
+    private static let paperLight = SIMD3(0.87, 0.87, 0.87)
 
     /// The mean color of the picture around the paper, in linear sRGB. The scene sets it.
     static var backdrop = decode(SIMD3(0.745, 0.715, 0.79)) * 0.5 {
@@ -139,10 +149,14 @@ enum RoomLight {
         // By the physics the part of the room light is proportional to 1 / display brightness. By eye that was
         // too warm on all steps below the brightest, so only a part of it follows the display brightness.
         let dimming = (1 - roomDimming) + roomDimming / max(m.display, 0.005)
-        let amount = roomShare * pow(2, strength) * m.lux / 24 * dimming
-        let room = matrix(1e6 / m.mired) * amount
+        let amount = roomShare * pow(2, strength) * m.lux / 24 * dimming * reach(mired: m.mired)
+        // Light cooler than the white of the display gives no blue metal: the eye is used to daylight.
+        let room = matrix(1e6 / max(m.mired, neutralMired)) * amount
         func display(paper part: Double) -> simd_double3x3 {
-            simd_double3x3(diagonal: (paperLight * part + backdrop * (1 - part)) * displayShare)
+            // Only the brightness of the backdrop counts. With its color, a purple desktop picture gave silver
+            // a pink cast, and the matches by eye in daylight were neutral.
+            let around = SIMD3(repeating: simd_dot(luma, backdrop))
+            return simd_double3x3(diagonal: (paperLight * part + around * (1 - part)) * displayShare)
         }
         var far = display(paper: paperPart.far) + room, below = display(paper: paperPart.below) + room
         // The display cannot show the metal brighter than its brightest channel allows: more light would only
