@@ -87,12 +87,15 @@ final class OverlayController: TypewriterViewDelegate {
             v.play(script: script.replacingOccurrences(of: "\\n", with: "\n"))
         }
         FocusMode.begin()
-        if case .notEditable = focus, previousApp != nil { watchFocus(session: session) }
+        switch focus {
+        case .notEditable, .maybeEditable: if previousApp != nil { watchFocus(session: session) }
+        default: break
+        }
     }
 
     private static func hint(for focus: FocusState) -> String {
         switch focus {
-        case .editable(let name, _): return "⌘↩ insert into \(name)    esc discard    ⌘, light"
+        case .editable(let name, _), .maybeEditable(let name): return "⌘↩ insert into \(name)    esc discard    ⌘, light"
         case .notEditable: return "⌘↩ copy to clipboard    esc discard"
         case .unknown: return "⌘↩ copy to clipboard (allow Accessibility to insert directly)    esc discard"
         }
@@ -103,7 +106,8 @@ final class OverlayController: TypewriterViewDelegate {
     /// while the page is open, and switch to insert mode when the text field shows up.
     private func watchFocus(session: Int, attempt: Int = 0) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            guard session == self.session, self.window != nil, !self.closing, case .notEditable = self.focus else { return }
+            guard session == self.session, self.window != nil, !self.closing else { return }
+            if case .editable = self.focus { return }
             let state = Inserter.focusState(of: self.previousApp)
             if case .editable = state {
                 self.focus = state
@@ -169,6 +173,13 @@ final class OverlayController: TypewriterViewDelegate {
                     Inserter.copyToClipboard(text)
                     HUD.show("Copied to clipboard")
                 }
+            case .maybeEditable:
+                if Stage.shared == nil {
+                    self.pasteWhenInFront(text, into: target, session: self.session)
+                } else {
+                    Inserter.copyToClipboard(text)
+                    HUD.show("Copied to clipboard")
+                }
             case .notEditable, .unknown:
                 Inserter.copyToClipboard(text)
                 HUD.show("Copied to clipboard")
@@ -190,6 +201,22 @@ final class OverlayController: TypewriterViewDelegate {
             } else {
                 Inserter.copyToClipboard(text)
                 HUD.show("The text field lost the focus. Copied to clipboard.")
+            }
+        }
+    }
+
+    /// For an app that does not tell where its focus is: pastes as soon as the app is in front again.
+    /// The text also stays on the clipboard, because it is not sure that the paste lands in a text field.
+    private func pasteWhenInFront(_ text: String, into target: NSRunningApplication?, session: Int, attempt: Int = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0.2 : 0.1)) {
+            let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            if session == self.session, let target, front == target.processIdentifier {
+                Inserter.paste(text, keep: true)
+            } else if session == self.session, attempt < 8 {
+                self.pasteWhenInFront(text, into: target, session: session, attempt: attempt + 1)
+            } else {
+                Inserter.copyToClipboard(text)
+                HUD.show("Copied to clipboard")
             }
         }
     }
