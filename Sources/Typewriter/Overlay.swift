@@ -38,13 +38,7 @@ final class OverlayController: TypewriterViewDelegate {
         // Debug aid for the website video: the mock-up's text field counts as editable at once.
         if let name = ProcessInfo.processInfo.environment["TYPEWRITER_APPNAME"] { focus = .editable(appName: name, element: nil) }
 
-        let hint: String
-        switch focus {
-        case .editable(let name, _):
-            hint = "⌘↩ insert into \(name)    esc discard    ⌘, light"
-        case .notEditable: hint = "⌘↩ copy to clipboard    esc discard"
-        case .unknown: hint = "⌘↩ copy to clipboard (allow Accessibility to insert directly)    esc discard"
-        }
+        let hint = Self.hint(for: focus)
 
         let frame = screen.frame
         let w = OverlayWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false, screen: screen)
@@ -93,6 +87,31 @@ final class OverlayController: TypewriterViewDelegate {
             v.play(script: script.replacingOccurrences(of: "\\n", with: "\n"))
         }
         FocusMode.begin()
+        if case .notEditable = focus, previousApp != nil { watchFocus(session: session) }
+    }
+
+    private static func hint(for focus: FocusState) -> String {
+        switch focus {
+        case .editable(let name, _): return "⌘↩ insert into \(name)    esc discard    ⌘, light"
+        case .notEditable: return "⌘↩ copy to clipboard    esc discard"
+        case .unknown: return "⌘↩ copy to clipboard (allow Accessibility to insert directly)    esc discard"
+        }
+    }
+
+    /// Chrome builds its accessibility tree only when a client asks for it, and drops it again after a pause.
+    /// The first question then gets the web area instead of the text field. So ask again for a few seconds
+    /// while the page is open, and switch to insert mode when the text field shows up.
+    private func watchFocus(session: Int, attempt: Int = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            guard session == self.session, self.window != nil, !self.closing, case .notEditable = self.focus else { return }
+            let state = Inserter.focusState(of: self.previousApp)
+            if case .editable = state {
+                self.focus = state
+                self.view?.hint = Self.hint(for: state)
+            } else if attempt < 20 {
+                self.watchFocus(session: session, attempt: attempt + 1)
+            }
+        }
     }
 
     private func close(then: @escaping () -> Void) {

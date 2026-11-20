@@ -15,7 +15,10 @@ final class TypewriterView: NSView, NSTextInputClient {
     let sounds: SoundEngine
     private var scene: PaperScene
     private let scale: CGFloat
-    private var hint: String
+    /// The line under the page. It can change while the page is open, when the target field shows up later.
+    var hint: String {
+        didSet { scene.setHint(hint) }
+    }
     private var lightObserver: NSObjectProtocol?
     private var hardwareObserver: NSObjectProtocol?
     private var styleObserver: NSObjectProtocol?
