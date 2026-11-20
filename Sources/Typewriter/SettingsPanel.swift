@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The state behind the settings form. Every change is applied at once.
@@ -128,6 +129,8 @@ final class SettingsModel: ObservableObject {
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    /// True: the view is as high as its content. Used to measure the height that the panel needs.
+    var fullHeight = false
 
     var body: some View {
         Form {
@@ -267,7 +270,7 @@ struct SettingsView: View {
         // The panel never takes the focus, so system switches would always look inactive (grey).
         .toggleStyle(AlwaysActiveSwitch())
         .frame(width: 440)
-        .fixedSize(horizontal: false, vertical: true)
+        .fixedSize(horizontal: false, vertical: fullHeight)
     }
 }
 
@@ -364,9 +367,28 @@ final class SettingsPanel: NSPanel {
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isReleasedWhenClosed = false
+        // The panel is as high as its content, but not higher than the screen. Then the content scrolls.
         let host = NSHostingView(rootView: SettingsView(model: model))
+        host.sizingOptions = []
         contentView = host
-        setContentSize(host.fittingSize)
+        changes = model.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.fitHeight() }
+        }
+        fitHeight()
+    }
+
+    private var changes: AnyCancellable?
+    private lazy var measure = NSHostingView(rootView: SettingsView(model: model, fullHeight: true))
+
+    private func fitHeight() {
+        let content = measure.fittingSize.height
+        let screen = (self.screen ?? NSScreen.screens.first)?.visibleFrame
+        let height = min(content, (screen?.height ?? content) - 48)
+        let size = frameRect(forContentRect: NSRect(x: 0, y: 0, width: 440, height: height)).size
+        guard abs(size.height - frame.height) > 0.5 || abs(size.width - frame.width) > 0.5 else { return }
+        // The top edge stays where it is.
+        setFrame(NSRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height),
+                 display: isVisible)
     }
 
     /// A shortcut recording must not outlive the panel: the global shortcut is off while it runs.
@@ -391,6 +413,7 @@ final class SettingsPanel: NSPanel {
             return
         }
         model.reload()
+        fitHeight()
         if let screen = NSScreen.screens.first {
             let f = screen.visibleFrame
             setFrameTopLeftPoint(NSPoint(x: f.maxX - frame.width - 24, y: f.maxY - 24))

@@ -122,10 +122,10 @@ enum RoomLight {
     /// Lamp light comes from above: it is weak at the sensor and strong on the housing. Daylight comes from the
     /// side through a window: it is strong at the sensor and weak on the housing. The color tells the two apart.
     /// Found by eye: in daylight of 420 lux and 9000 K the picture brightness that matched was 40 % to 47 %,
-    /// nearly the light of the display alone.
+    /// nearly the light of the display alone. In sun of 2600 lux and 6500 K it was 56 % (0.28 linear).
     private static func reach(mired: Double) -> Double {
         let lamp = min(1, max(0, (mired - 200) / (333 - 200))) // 0 at 5000 K and cooler, 1 at 3000 K and warmer
-        return 0.04 + 0.96 * lamp * lamp * (3 - 2 * lamp)
+        return 0.075 + 0.925 * lamp * lamp * (3 - 2 * lamp)
     }
 
     /// The part of the room light that grows when the display gets darker. Found by eye.
