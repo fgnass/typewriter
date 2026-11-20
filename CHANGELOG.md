@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/fgnass/typewriter/compare/v0.1.1...v0.1.2) (2026-11-20)
+
+
+### Bug Fixes
+
+* daylight reaches the housing a bit more, so the metal in sun is as bright as a manual match; the settings panel is never higher than the screen and scrolls ([176ac79](https://github.com/fgnass/typewriter/commit/176ac791a9e9e13e0bc7e5d45ae4ee323bad9f79))
+* insert into apps that do not tell where their focus is, like Safari: when the Paste command of the app is on, paste and keep the text on the clipboard ([cdb347c](https://github.com/fgnass/typewriter/commit/cdb347cca4c497b69d73a1f849282463d85350e3))
+
 ## [0.1.1](https://github.com/fgnass/typewriter/compare/v0.1.0...v0.1.1) (2026-11-20)
 
 
